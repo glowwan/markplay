@@ -1,0 +1,52 @@
+{
+  "build": {
+    "appId": "com.markplay.app",
+    "extraResources": [
+      {
+        "from": "resources/bin",
+        "to": "bin"
+      }
+    ],
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "nsis": {
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "oneClick": false,
+      "perMachine": false,
+      "shortcutName": "MarkPlay"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    }
+  },
+  "dependencies": {},
+  "description": "基于 mpv 的 Windows 视频播放器：触摸板顺滑快进快退、ABC 快捷键打点、标记导出与片段剪辑",
+  "devDependencies": {
+    "electron": "^34.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "main": "src/main.js",
+  "name": "markplay",
+  "productName": "MarkPlay",
+  "scripts": {
+    "check:dom": "node tools/check-dom.js",
+    "dist": "electron-builder --win --x64",
+    "fetch-bin": "node tools/fetch-binaries.js",
+    "start": "electron .",
+    "test": "node tests/run.js"
+  },
+  "version": "1.2.1"
+}

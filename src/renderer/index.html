@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MarkPlay 打点播放器</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<!-- 拖放提示遮罩：文件拖入窗口时显示 -->
+<div id="drop-hint" hidden>松开鼠标以打开视频</div>
+<!-- 加载遮罩：大文件打开时给个反馈，避免以为卡死 -->
+<div id="loading" hidden>
+  <div class="loading-box">
+    <div class="spinner"></div>
+    <div class="loading-text">正在加载…</div>
+  </div>
+</div>
+<!-- 右下角提示（导出完成 / 剪辑完成 / 出错） -->
+<div id="toast-stack" aria-live="polite"></div>
+<div id="app">
+  <!-- 上部：视频区 + 侧栏 -->
+  <div id="main">
+    <!-- 左：视频区。mpv 画面由主进程嵌入到该区域的原生子窗口中播放，
+         HTML 元素无法覆盖在视频画面之上，因此所有 UI 都放在视频区之外 -->
+    <div id="video-host">
+      <div id="video-placeholder">
+        <span>拖拽视频文件到窗口任意处，或按 <kbd>O</kbd> 打开</span>
+      </div>
+    </div>
+
+    <!-- 右：300px 侧栏 -->
+    <aside id="sidebar">
+      <!-- ① 标记列表 -->
+      <section class="panel" id="marker-panel">
+        <div class="panel-title">标记 <span id="marker-count" class="count"></span></div>
+        <div class="mark-buttons">
+          <button id="btn-mark-a" class="mark-btn color-a" title="在当前时间打 A 点 (A)">A 打点</button>
+          <button id="btn-mark-b" class="mark-btn color-b" title="在当前时间打 B 点 (B)">B 打点</button>
+          <button id="btn-mark-c" class="mark-btn color-c" title="在当前时间打 C 点 (C)">C 打点</button>
+          <button id="btn-mark-d" class="mark-btn color-d" title="在当前时间打 D 点 (D)">D 打点</button>
+          <button id="btn-mark-f" class="mark-btn color-f" title="在当前时间打 F 点 (F)">F 打点</button>
+          <button id="btn-mark-g" class="mark-btn color-g" title="在当前时间打 G 点 (G)">G 打点</button>
+        </div>
+        <ul id="marker-list" class="marker-list"></ul>
+        <div class="hint">点击列表项跳转 · 双击标签重命名 · 拖动时间轴刻度改时间 · Ctrl+Z 撤销</div>
+      </section>
+
+      <!-- ② 区间（显式 in/out，批量剪辑与 EDL 以它为准） -->
+      <section class="panel" id="range-panel">
+        <div class="panel-title">区间 <span id="range-count" class="count"></span></div>
+        <div class="range-actions">
+          <button id="btn-range-in" class="btn" title="把当前播放时间设为区间入点（快捷键 [）">设入点</button>
+          <button id="btn-range-out" class="btn" title="把当前播放时间设为区间出点并创建区间（快捷键 ]）">设出点</button>
+        </div>
+        <div class="range-actions">
+          <button id="btn-range-from-ab" class="btn" title="按 A→B 配对生成区间（兼容只打了 A/B 点的老项目）">A/B 配对</button>
+          <button id="btn-range-adjacent" class="btn" title="按时间相邻两个标记（1-2、3-4…）生成区间，任意类型都行">相邻配对</button>
+        </div>
+        <div class="hint" id="range-pending">入点：未设置</div>
+        <div class="hint">标记类型（A–G）只是参考点；任意时间按 <kbd>[</kbd> / <kbd>]</kbd> 都能建区间，批量剪辑使用所有区间。</div>
+        <ul id="range-list" class="marker-list range-list"></ul>
+      </section>
+
+      <!-- ③ 剪辑 -->
+      <section class="panel" id="clip-panel">
+        <div class="panel-title">剪辑</div>
+        <label class="field">
+          <span>区间</span>
+          <select id="clip-range"></select>
+        </label>
+        <label class="field">
+          <span>输出名</span>
+          <input type="text" id="clip-name" placeholder="留空则自动命名">
+        </label>
+        <label class="check">
+          <input type="checkbox" id="clip-reencode">
+          <span>重新编码（按源码率，体积接近原文件）</span>
+        </label>
+        <label class="check">
+          <input type="checkbox" id="clip-merge">
+          <span>合并为一个文件（批量剪辑时，自动按源码率重编码）</span>
+        </label>
+        <div class="clip-progress-wrap" id="clip-progress-wrap" title="剪辑进度">
+          <div id="clip-progress-fill"></div>
+        </div>
+        <button id="btn-clip" class="btn primary wide">开始剪辑</button>
+        <button id="btn-clip-batch" class="btn wide" title="把区间列表里的每一段各导出一个片段到选定文件夹">批量剪辑（按区间）</button>
+      </section>
+
+      <!-- ④ 导出 -->
+      <section class="panel" id="export-group">
+        <div class="panel-title">导出</div>
+        <div class="export-buttons">
+          <button id="btn-export-csv" class="btn" title="导出标记为 CSV 时间码表">CSV</button>
+          <button id="btn-export-edl" class="btn" title="导出为 CMX3600 EDL（有区间时按区间，否则按标记分段）">EDL</button>
+          <button id="btn-export-rng" class="btn" title="导出区间为 CSV（in/out 秒数、时间码、帧号）">区间</button>
+          <button id="btn-export-json" class="btn" title="导出为 JSON（标记 + 区间）">JSON</button>
+        </div>
+        <div class="hint" id="fps-label">工程帧率：--</div>
+      </section>
+    </aside>
+  </div>
+
+  <!-- 底部：110px 控制条 -->
+  <div id="controlbar">
+    <div class="controls-row">
+      <button id="btn-play" class="icon-btn" title="播放 / 暂停 (Space)">▶</button>
+      <button id="btn-open" class="icon-btn" title="打开视频文件 (O)">📂</button>
+      <button id="btn-fullscreen" class="icon-btn" title="视频全屏 (F11，再按 ESC 退出)">⛶</button>
+      <button id="btn-speed-fwd" class="icon-btn speed-btn" title="2 倍速正放 / 恢复 (X)；也可在视频画面上点鼠标左键">2x▶</button>
+      <button id="btn-speed-rev" class="icon-btn speed-btn" title="2 倍速倒放 / 恢复 (Z)；也可在视频画面上点鼠标右键">◀2x</button>
+      <button id="btn-loop" class="icon-btn speed-btn" title="A–B 循环（L）：按剪辑面板选中的区间循环播放">A–B</button>
+      <div class="zoom-wrap" title="时间轴缩放：Ctrl+滚轮 / Ctrl+加号减号；Shift+滚轮平移">
+        <button id="btn-zoom-out" class="mini-btn" title="缩小">−</button>
+        <span id="zoom-label">全片</span>
+        <button id="btn-zoom-in" class="mini-btn" title="放大">＋</button>
+        <button id="btn-zoom-fit" class="mini-btn" title="适配全片 (Ctrl+0)">适配</button>
+      </div>
+      <div id="time-wrap">
+        <span id="time-current">00:00:00.000</span>
+        <span class="sep">/</span>
+        <span id="time-total">--:--:--</span>
+        <!-- scrub 指示 HUD：只能放在 HTML 区，不能覆盖视频 -->
+        <span id="scrub-hud" hidden></span>
+      </div>
+      <div class="vol-wrap" title="音量（触摸板纵滑也可调节）">
+        <span class="vol-icon">🔊</span>
+        <input type="range" id="volume" min="0" max="100" value="100" step="1">
+      </div>
+      <div id="status" title="状态">就绪</div>
+    </div>
+    <!-- 时间轴：div 实现。刻度由 markers.js 渲染进 #marker-ticks -->
+    <div id="timeline" title="点击或拖拽跳转">
+      <div id="timeline-track"></div>
+      <div id="range-bars"></div>
+      <div id="marker-ticks"></div>
+      <div id="timeline-playhead"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 脚本顺序：timeline-view → scrub → markers → ui → export → renderer（主 wiring）；
+     config 由 preload 注入为 window.markplay.config，此处不引入 -->
+<script src="timeline-view.js"></script>
+<script src="scrub.js"></script>
+<script src="markers.js"></script>
+<script src="ui.js"></script>
+<script src="export.js"></script>
+<script src="renderer.js"></script>
+</body>
+</html>
