@@ -187,6 +187,7 @@ npm run check:dom   # DOM id / 脚本引用自检
 ## 文档
 
 - [CHANGELOG.md](CHANGELOG.md)：版本更新记录
+- [CONTRIBUTING.md](CONTRIBUTING.md)：**报 bug 请先看这里**（怎么提供日志和素材信息）
 - [REVIEW.md](REVIEW.md)：实现细节、设计取舍、后续路线
 - [docs/RELEASE.md](docs/RELEASE.md)：代码签名、构建/发布清单、二进制固定与校验
 - [docs/LIBMPV-MIGRATION.md](docs/LIBMPV-MIGRATION.md)：用 libmpv 替掉 `--wid` 子窗口的可行性与分阶段方案
@@ -207,8 +208,10 @@ video-marker-player/
 ├── README.md              # 中文说明（本文档）
 ├── README.en.md           # English README
 ├── CHANGELOG.md           # 版本更新记录
+├── CONTRIBUTING.md        # 贡献指南（报 bug 需附什么）
 ├── REVIEW.md              # 实现细节 + 后续建议
 ├── LICENSE                # MIT
+├── .github/               # issue 模板 + PR 模板
 ├── docs/
 │   ├── RELEASE.md         # 代码签名 + 发布清单
 │   ├── LIBMPV-MIGRATION.md# libmpv 渲染重构方案
@@ -218,6 +221,7 @@ video-marker-player/
 ├── src/
 │   ├── main.js            # 主进程：窗口、mpv/ffmpeg 子进程、IPC、菜单、单实例
 │   ├── config.js          # 前后端共享配置
+│   ├── media-utils.js     # 纯函数：文件类型、码率估算、ffmpeg 参数、concat 转义
 │   ├── settings.js        # 设置持久化（音量 / 最近文件 / 窗口几何）
 │   ├── logger.js          # 文件日志（轮转、异常汇总）
 │   ├── mpv.js             # mpv JSON IPC 客户端

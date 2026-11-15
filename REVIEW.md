@@ -325,3 +325,43 @@ npm test        # 等价于 node tests/run.js，25 个用例
 新增 2 个测试（重复 id 去重并回写、并发加载只落一份），总计 **47 个**全过；语法 0 失败；DOM id 无缺失。
 
 > 你现有的 `*.markplay.json` 不需要手动改：用 1.1.2 打开一次，会自动去重并写回。
+
+## 十六、v1.3.0 准备：主进程纯逻辑抽出 + 社区文件
+
+这一轮没改用户可见行为，做的是"让后面的改动更安全"。
+
+### 为什么先做这个
+
+[libmpv 方案](docs/LIBMPV-MIGRATION.md) 的第一阶段是"抽象出 VideoSurface 接口"。但 `main.js` 有 1600 行、**零测试覆盖**，直接在里面做接口改造风险太高——一旦改坏，表现是"播放黑屏"或"窗口不跟随"，而这类问题只能靠真机跑才能发现。
+
+所以先把**有逻辑、容易错、但不碰窗口和子进程**的部分抽出来：
+
+| 抽出的函数 | 为什么值得测 |
+|---|---|
+| `estimateVideoBitrate` | 码率算错 = 剪辑后体积翻几倍（v1.2.0 就是这个 bug） |
+| `reencodeArgs` | 参数拼错 = ffmpeg 静默产出坏文件 |
+| `toConcatLine` | 转义错 = 合并剪辑时路径带空格/单引号就失败 |
+| `findMediaArg` | 命令行解析错 = 双击文件打不开 |
+| `extensionOf` / `isMediaPath` / `isSubtitlePath` | 分错类 = 字幕被当视频打开 |
+
+落到 `src/media-utils.js`，纯函数、无 Electron 依赖，`node tests/run.js` 直接跑。
+
+### 设计取舍
+
+- `estimateVideoBitrate(bytes, seconds)` 只吃字节数和时长，**不碰文件系统**——这样测试不需要造真实视频文件；文件读取的包装 `targetVideoBitrate(input, duration)` 留在 `main.js`。
+- `findMediaArg(argv, deps)` 允许注入 `resolve` / `exists`，测试里不用真的建文件。
+- 新增 `isMediaPath()` 替代原来散在 `doLoadVideo` 里的 `MEDIA_EXTENSIONS.includes(ext)` 手写判断。
+
+### 刻意没做的
+
+**没有**改动 `createMainWindow` / `createSurfaceWindow` / `applyVideoRect` / `startMpv` —— 这些必须真机验证，在没法跑 GUI 的环境里改它们是不负责任的。VideoSurface 接口抽象留到能实机调试的时候做。
+
+### 社区文件
+
+- `CONTRIBUTING.md`：明确"报 bug 必须附 `markplay.log` 的最后 100 行 + ffprobe 输出"，并给出开发环境搭建与提交前检查；
+- `.github/ISSUE_TEMPLATE/bug_report.yml`：结构化表单（版本 / Windows 版本 / 复现步骤 / 日志 / 素材信息 / 相关环节）；
+- `.github/ISSUE_TEMPLATE/feature_request.yml`：要求先描述场景而不是直接提方案；
+- `.github/ISSUE_TEMPLATE/config.yml`：关闭空白 issue，使用问题引导到 Discussions；
+- `.github/PULL_REQUEST_TEMPLATE.md`：带 `npm test` / `check:dom` 勾选项。
+
+测试总数 **47 → 63**，语法 0 失败，DOM id 无缺失。

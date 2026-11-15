@@ -1,0 +1,108 @@
+name: Bug 报告
+description: 播放、打点、导出、剪辑等任何环节出问题
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        提交前请先看一眼 [已知限制](https://github.com/glowwan/markplay#已知限制)，有些行为是刻意的取舍。
+
+  - type: input
+    id: version
+    attributes:
+      label: MarkPlay 版本
+      description: 安装包文件名里的版本号，或菜单「帮助 → 关于」里显示的版本
+      placeholder: "例如 v1.2.1"
+    validations:
+      required: true
+
+  - type: input
+    id: windows
+    attributes:
+      label: Windows 版本
+      description: 设置 → 系统 → 关于，或 `winver` 命令
+      placeholder: "例如 Windows 11 23H2 / Windows 10 22H2"
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 发生了什么
+      description: 实际看到的现象，越具体越好（报错文字、界面卡住、文件大小不对……）
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 你期望的结果
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 一步步写，包括按了哪些快捷键
+      placeholder: |
+        1. 打开 4K HEVC 的 mkv
+        2. 播到 1:23 按 [
+        3. 播到 1:31 按 ]
+        4. 点「开始剪辑」，勾选了「重新编码」
+        5. → 输出文件只有 200KB
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: 运行日志
+      description: |
+        菜单 **帮助 → 打开日志文件夹**，打开 `markplay.log`，贴最后 100 行左右。
+        里面已经有主进程/渲染进程异常、mpv stderr、ffmpeg 命令与失败原因——有它我基本能直接定位。
+        贴之前请把个人路径（`C:\Users\你的名字\...`）删掉。
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: media-info
+    attributes:
+      label: 视频信息（播放/剪辑类问题必填）
+      description: |
+        运行下面这条命令，把输出贴上来：
+        `ffprobe -v error -show_format -show_streams "你的视频.mp4"`
+        不方便的话，至少说明容器（mp4/mkv/ts）、编码（H.264/HEVC/AV1）、分辨率、帧率。
+      render: text
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: 相关环节
+      multiple: true
+      options:
+        - 播放 / 解码
+        - 触摸板刷片手感
+        - 打点 / 标记
+        - 区间
+        - 导出 CSV / EDL / JSON
+        - 剪辑（单段）
+        - 批量剪辑 / 合并
+        - 字幕
+        - 全屏 / 界面布局
+        - 安装 / 启动
+        - 其它
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 确认
+      options:
+        - label: 我已在 [Issues](https://github.com/glowwan/markplay/issues) 里搜索过类似问题
+          required: true
+        - label: 我使用的是最新 Release 版本
+          required: false

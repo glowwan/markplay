@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 使用问题 / 讨论
+    url: https://github.com/glowwan/markplay/discussions
+    about: "「怎么用」「能不能支持 XX 格式」这类问题请走讨论区，不要开 issue。"
+  - name: 下载与安装说明
+    url: https://github.com/glowwan/markplay#下载安装
+    about: "安装失败、SmartScreen 提示「未知发布者」等问题，先看这里。"

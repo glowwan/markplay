@@ -21,6 +21,15 @@ const config = require('./config');
 const { MpvClient } = require('./mpv');
 const { SettingsStore } = require('./settings');
 const { Logger } = require('./logger');
+const {
+  MEDIA_EXTENSIONS,
+  SUBTITLE_EXTENSIONS,
+  estimateVideoBitrate,
+  findMediaArg,
+  isSubtitlePath,
+  reencodeArgs,
+  toConcatLine,
+} = require('./media-utils');
 
 // ---------- 常量 ----------
 
@@ -28,16 +37,6 @@ const { Logger } = require('./logger');
 const MPV_CONNECT_ATTEMPTS = 60;
 /** mpv IPC 连接重试间隔（毫秒） */
 const MPV_CONNECT_INTERVAL_MS = 100;
-
-/** 可打开的视频/音频扩展名 */
-const MEDIA_EXTENSIONS = [
-  'mp4', 'mkv', 'avi', 'mov', 'wmv', 'flv', 'webm', 'm2ts', 'ts', 'm4v',
-  'mpg', 'mpeg', 'vob', 'ogv', '3gp', 'asf', 'rmvb', 'divx',
-  'mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg', 'opus', 'mka', 'wma',
-];
-
-/** 可拖入的字幕扩展名（拖到窗口上时调用 mpv sub-add，而不是当成视频打开） */
-const SUBTITLE_EXTENSIONS = ['srt', 'ass', 'ssa', 'vtt', 'sub', 'idx', 'sup'];
 
 // ---------- 全局状态 ----------
 
@@ -192,37 +191,6 @@ function killChild(proc) {
   } catch {
     // 进程可能已经退出，忽略
   }
-}
-
-/**
- * 从进程参数里找第一个存在且扩展名可用的媒体文件。
- * 打包后 argv[1] 就是被双击的文件；开发环境（electron .）里会混入 "." 等参数，需要过滤。
- * @param {string[]} argv
- * @returns {string} 完整路径；找不到返回空串
- */
-function findMediaArg(argv) {
-  if (!Array.isArray(argv)) return '';
-  for (let i = argv.length - 1; i >= 1; i--) {
-    const candidate = argv[i];
-    if (typeof candidate !== 'string' || candidate.length === 0) continue;
-    if (candidate.startsWith('-')) continue;
-    let full;
-    try {
-      full = path.resolve(candidate);
-    } catch {
-      continue;
-    }
-    if (!fs.existsSync(full)) continue;
-    const ext = path.extname(full).slice(1).toLowerCase();
-    if (MEDIA_EXTENSIONS.includes(ext)) return full;
-  }
-  return '';
-}
-
-/** 判断路径是否为字幕（拖入字幕时走 sub-add，而不是 loadfile） */
-function isSubtitlePath(p) {
-  const ext = path.extname(String(p || '')).slice(1).toLowerCase();
-  return SUBTITLE_EXTENSIONS.includes(ext);
 }
 
 /**
@@ -884,47 +852,23 @@ function runFfmpegJob(args, output, totalUs, onPercent) {
   });
 }
 
-/** concat demuxer 的一行：Windows 反斜杠换正斜杠，单引号转义 */
-function toConcatLine(filePath) {
-  return "file '" + filePath.replace(/\\/g, '/').replace(/'/g, "'\\''") + "'";
-}
-
 /**
- * 按"源文件大小 / 时长"估算视频码率，让重新编码后的体积尽量接近源文件。
- * 音轨按 96kbps 预留；估算不出来时返回 0，调用方回退到 CRF 23。
+ * 读源文件字节数并估算目标视频码率（estimateVideoBitrate 的文件系统包装）。
+ * 读不到文件或时长未知时返回 0，调用方会回退到 CRF。
  * @param {string} input
  * @param {number} durationSec
  * @returns {number} 视频码率（bps）
  */
 function targetVideoBitrate(input, durationSec) {
-  const d = Number(durationSec);
-  if (!Number.isFinite(d) || d < 2) return 0;
+  let bytes = 0;
   try {
     const st = fs.statSync(input);
-    if (!st.isFile() || st.size < 1024) return 0;
-    const totalBps = (st.size * 8) / d;
-    if (!Number.isFinite(totalBps) || totalBps < 60000) return 0;
-    const audioBps = 96000;
-    let videoBps = Math.round(totalBps - audioBps);
-    if (videoBps < 120000) videoBps = Math.max(80000, Math.round(totalBps * 0.7));
-    return Math.min(videoBps, 50000000);
+    if (!st.isFile()) return 0;
+    bytes = st.size;
   } catch {
     return 0;
   }
-}
-
-/** 重新编码时使用的参数：有源码率估算就按码率压，否则退回 CRF 23 */
-function reencodeArgs(targetBps) {
-  if (targetBps > 0) {
-    return [
-      '-c:v', 'libx264', '-preset', 'fast',
-      '-b:v', String(targetBps),
-      '-maxrate', String(Math.round(targetBps * 1.2)),
-      '-bufsize', String(targetBps * 2),
-      '-c:a', 'aac', '-b:a', '96k',
-    ];
-  }
-  return ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-c:a', 'aac'];
+  return estimateVideoBitrate(bytes, durationSec);
 }
 
 // ---------- IPC：mpv 控制 ----------

@@ -12,6 +12,7 @@
 
 require('./settings.test.js');
 require('./logger.test.js');
+require('./media-utils.test.js');
 require('./timeline-view.test.js');
 require('./export.test.js');
 require('./markers.test.js');
