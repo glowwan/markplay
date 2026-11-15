@@ -19,3 +19,5 @@ require('./export.test.js');
 require('./markers.test.js');
 require('./frame-snap.test.js');
 require('./batch-and-move.test.js');
+require('./scene-parse.test.js');
+require('./scenes.test.js');

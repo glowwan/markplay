@@ -145,6 +145,7 @@
       <button id="btn-speed-fwd" class="icon-btn speed-btn" title="2 倍速正放 / 恢复 (X)；也可在视频画面上点鼠标左键">2x▶</button>
       <button id="btn-speed-rev" class="icon-btn speed-btn" title="2 倍速倒放 / 恢复 (Z)；也可在视频画面上点鼠标右键">◀2x</button>
       <button id="btn-loop" class="icon-btn speed-btn" title="A–B 循环（L）：按剪辑面板选中的区间循环播放">A–B</button>
+      <button id="btn-scenes" class="icon-btn speed-btn" title="识别画面转场，在时间轴上显示提示浮标（只是提示，不会打点）">转场</button>
       <div class="zoom-wrap" title="时间轴缩放：Ctrl+滚轮 / Ctrl+加号减号；Shift+滚轮平移">
         <button id="btn-zoom-out" class="mini-btn" title="缩小">−</button>
         <span id="zoom-label">全片</span>
@@ -166,6 +167,7 @@
     </div>
     <!-- 时间轴：div 实现。刻度由 markers.js 渲染进 #marker-ticks -->
     <div id="timeline" title="点击或拖拽跳转">
+      <div id="scene-bubbles"></div>
       <div id="timeline-track"></div>
       <div id="range-bars"></div>
       <div id="marker-ticks"></div>
@@ -174,9 +176,10 @@
   </div>
 </div>
 
-<!-- 脚本顺序：timeline-view → scrub → markers → ui → export → renderer（主 wiring）；
+<!-- 脚本顺序：timeline-view → scenes → scrub → markers → ui → export → renderer（主 wiring）；
      config 由 preload 注入为 window.markplay.config，此处不引入 -->
 <script src="timeline-view.js"></script>
+<script src="scenes.js"></script>
 <script src="scrub.js"></script>
 <script src="markers.js"></script>
 <script src="ui.js"></script>

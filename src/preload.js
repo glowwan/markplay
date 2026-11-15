@@ -188,6 +188,20 @@ contextBridge.exposeInMainWorld('markplay', {
   backupSidecar: (sidecarPath) => ipcRenderer.invoke('backup-sidecar', sidecarPath),
 
   /**
+   * 识别画面转场（只用于时间轴上的提示浮标，不写入标记）。
+   * 进度与结果通过 player-event 的 scene-progress / scene-detected / scene-error 上报。
+   * @param {{threshold?: number}} [opts] 0.05–0.95，越小越敏感
+   * @returns {Promise<{ok: boolean, threshold?: number, cached?: boolean, error?: string}>}
+   */
+  detectScenes: (opts) => ipcRenderer.invoke('detect-scenes', opts),
+
+  /**
+   * 取消正在进行的转场识别。
+   * @returns {Promise<{ok: boolean, running: boolean}>}
+   */
+  cancelScenes: () => ipcRenderer.invoke('cancel-scenes'),
+
+  /**
    * 把渲染进程的报错写进主进程日志（window.onerror / unhandledrejection）。
    * @param {'info'|'warn'|'error'} level
    * @param {string} message

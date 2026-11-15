@@ -53,7 +53,10 @@
     fullscreen: false,   // 视频子窗口是否全屏
     looping: false,      // A–B 循环是否开启
     fps: 0,              // 素材帧率（mpv container-fps；0 表示未知）
-    pendingIn: null      // 已按"设入点"但还没设出点的时间（秒），null 表示未设置
+    pendingIn: null,     // 已按"设入点"但还没设出点的时间（秒），null 表示未设置
+    scenes: [],          // 识别出的转场时间点（秒），仅用于时间轴提示
+    showScenes: false,   // 是否显示转场浮标
+    scanning: false      // 是否正在识别转场
   };
   var timelineDragging = false; // 时间轴指针拖拽 seek 中
   var preferredVolume = 100;    // 记住的音量（新开 mpv 时重新应用）
@@ -476,7 +479,7 @@
     var has = !!state.videoPath;
     ['btn-mark-a', 'btn-mark-b', 'btn-mark-c',
      'btn-mark-d', 'btn-mark-f', 'btn-mark-g', 'btn-batch-rename',
-     'btn-fullscreen', 'btn-speed-fwd', 'btn-speed-rev', 'btn-loop',
+     'btn-fullscreen', 'btn-speed-fwd', 'btn-speed-rev', 'btn-loop', 'btn-scenes',
      'btn-zoom-in', 'btn-zoom-out', 'btn-zoom-fit',
      'btn-range-in', 'btn-range-out', 'btn-range-from-ab', 'btn-range-adjacent',
      'btn-export-csv', 'btn-export-edl', 'btn-export-rng', 'btn-export-json',
@@ -548,6 +551,9 @@
     state.looping = false;
     state.fps = 0;
     state.pendingIn = null;
+    state.scenes = [];
+    state.showScenes = false;
+    state.scanning = false;
     loopRangeId = null;
     TimelineView.setDuration(0);
     updateSpeedUI();
@@ -555,6 +561,8 @@
     updateFpsLabel();
     updateRangeHint();
     updateZoomLabel();
+    renderScenes();
+    updateSceneButton();
     document.title = basename(path) + ' — MarkPlay';
     // 换片：清空旧标记，再读新片的 sidecar
     Markers.clear();
@@ -641,8 +649,108 @@
   function refreshTimelineView() {
     Markers.renderTimeline();
     Markers.renderRanges();
+    renderScenes();
     updatePlayhead();
     updateZoomLabel();
+  }
+
+  // ---------- 转场提示浮标 ----------
+  /** 重画时间轴上的转场浮标（只提示，不是标记） */
+  function renderScenes() {
+    var layer = $('scene-bubbles');
+    if (!layer) return;
+    layer.innerHTML = '';
+    if (!state.showScenes || !(state.duration > 0) || !state.scenes.length) return;
+
+    var tl = $('timeline');
+    if (!tl) return;
+    var widthPx = tl.getBoundingClientRect().width;
+    var view = TimelineView.getState();
+    var keep = Scenes.thin(state.scenes, view, widthPx);
+
+    keep.forEach(function (t) {
+      var ratio = TimelineView.toRatio(t);
+      var b = document.createElement('div');
+      b.className = 'scene-bubble';
+      b.style.left = (ratio * 100) + '%';
+      b.dataset.tip = '转场 @ ' + Exporter.tc(t);
+      b.title = '画面转场 @ ' + Exporter.tc(t) + '（提示，点击跳转）';
+      b.addEventListener('pointerdown', function (e) { e.stopPropagation(); });
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        seekTo(t);
+      });
+      layer.appendChild(b);
+    });
+  }
+
+  function updateSceneButton() {
+    var btn = $('btn-scenes');
+    if (!btn) return;
+    btn.classList.toggle('active', state.showScenes);
+    btn.classList.toggle('busy', state.scanning);
+    if (state.scanning) {
+      btn.textContent = '识别中';
+      btn.title = '正在识别转场…点击取消';
+    } else if (state.showScenes) {
+      btn.textContent = '转场 ' + state.scenes.length;
+      btn.title = '已显示 ' + state.scenes.length + ' 个转场提示，点击隐藏';
+    } else {
+      btn.textContent = '转场';
+      btn.title = '识别画面转场，在时间轴上显示提示浮标（只是提示，不会打点）';
+    }
+  }
+
+  function startSceneScan() {
+    if (!requireVideo()) return;
+    state.scanning = true;
+    updateSceneButton();
+    status('正在识别画面转场…（长片可能要几分钟）');
+    window.markplay.detectScenes().then(function (r) {
+      if (!r || !r.ok) {
+        state.scanning = false;
+        updateSceneButton();
+        status('转场识别失败：' + ((r && r.error) || '未知错误'), 'error');
+      }
+    }).catch(function (err) {
+      state.scanning = false;
+      updateSceneButton();
+      status('转场识别失败：' + (err && err.message ? err.message : String(err)), 'error');
+    });
+  }
+
+  function cancelSceneScan() {
+    window.markplay.cancelScenes().catch(function () {});
+    state.scanning = false;
+    updateSceneButton();
+    status('已取消转场识别');
+  }
+
+  /** 跳到上一个/下一个转场提示点（只跳转，不打点） */
+  function jumpToScene(dir) {
+    var t = Scenes.nearest(state.scenes, state.currentTime, dir);
+    if (t == null) {
+      status(dir === 'prev' ? '前面没有转场提示了' : '后面没有转场提示了');
+      return;
+    }
+    seekTo(t);
+    status('跳到转场 @ ' + Exporter.tc(t));
+  }
+
+  /** 转场按钮：没扫过就扫，扫过就切换显示 */
+  function toggleScenes() {
+    if (!requireVideo()) return;
+    if (state.scanning) { cancelSceneScan(); return; }
+    if (state.scenes.length) {
+      state.showScenes = !state.showScenes;
+      renderScenes();
+      updateSceneButton();
+      status(state.showScenes
+        ? '已显示 ' + state.scenes.length + ' 个转场提示'
+        : '已隐藏转场提示');
+      return;
+    }
+    startSceneScan();
   }
 
   function zoomStep(inward) {
@@ -770,6 +878,7 @@
     updateTotal();
     updatePlayhead();
     updateZoomLabel();
+    renderScenes();
   }
 
   function onPaused(paused) {
@@ -849,6 +958,36 @@
         case 'backup-sidecar':
           // 菜单「文件 → 备份标记文件」(Ctrl+S) 触发
           backupSidecar();
+          break;
+        case 'scene-start':
+          state.scanning = true;
+          updateSceneButton();
+          break;
+        case 'scene-progress':
+          status('正在识别转场…已找到 ' + ev.found + ' 处'
+            + (ev.scannedTo > 0 ? '，扫描到 ' + Exporter.tc(ev.scannedTo) : '')
+            + '（' + ev.elapsedSec + 's）');
+          break;
+        case 'scene-detected':
+          state.scanning = false;
+          state.scenes = Array.isArray(ev.scenes) ? ev.scenes : [];
+          state.showScenes = true;
+          renderScenes();
+          updateSceneButton();
+          status(state.scenes.length
+            ? '识别到 ' + state.scenes.length + ' 处转场（仅提示，点击浮标可跳转）'
+            : '没有识别到转场（画面变化不明显，或阈值太高）',
+            state.scenes.length ? 'ok' : 'normal');
+          break;
+        case 'scene-cancelled':
+          state.scanning = false;
+          updateSceneButton();
+          break;
+        case 'scene-error':
+          state.scanning = false;
+          updateSceneButton();
+          status('转场识别失败：' + ev.message, 'error');
+          UI.toast('转场识别失败：' + ev.message, { kind: 'error' });
           break;
         case 'surface-dragover':
           // 文件正悬停在视频画面上：提示松开以打开
@@ -946,11 +1085,20 @@
         case ',': frameStep(-1); e.preventDefault(); break;
         case '.': frameStep(1); e.preventDefault(); break;
         case 'arrowleft':
-          seekRelative(-cfg().SEEK_STEP);
+          // 有转场提示时，Shift+← 跳到上一个转场；否则按普通步长后退
+          if (e.shiftKey && state.showScenes && state.scenes.length) {
+            jumpToScene('prev');
+          } else {
+            seekRelative(-cfg().SEEK_STEP);
+          }
           e.preventDefault();
           break;
         case 'arrowright':
-          seekRelative(cfg().SEEK_STEP);
+          if (e.shiftKey && state.showScenes && state.scenes.length) {
+            jumpToScene('next');
+          } else {
+            seekRelative(cfg().SEEK_STEP);
+          }
           e.preventDefault();
           break;
         case 'a': addMarker('A'); break;
@@ -983,6 +1131,7 @@
     $('btn-speed-fwd').addEventListener('click', function () { toggleSpeed('fwd2x'); });
     $('btn-speed-rev').addEventListener('click', function () { toggleSpeed('rev2x'); });
     $('btn-loop').addEventListener('click', toggleLoop);
+    $('btn-scenes').addEventListener('click', toggleScenes);
     $('btn-zoom-in').addEventListener('click', function () { zoomStep(true); });
     $('btn-zoom-out').addEventListener('click', function () { zoomStep(false); });
     $('btn-zoom-fit').addEventListener('click', zoomFit);
@@ -1078,6 +1227,10 @@
     updateLoopUI();
     updateRangeHint();
     updateZoomLabel();
+    updateSceneButton();
+
+    // 时间轴宽度变化（窗口缩放）后浮标可能过密/过疏，重画一次
+    window.addEventListener('resize', renderScenes);
 
     window.addEventListener('resize', updateVideoRect);
     // 渲染进程收不到窗口 move 事件：500ms 轮询重发，覆盖移动/布局变化

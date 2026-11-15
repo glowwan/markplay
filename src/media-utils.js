@@ -147,17 +147,54 @@ function toConcatLine(filePath) {
   return "file '" + normalized + "'";
 }
 
+/** 转场识别的默认灵敏度（0–1，越小越敏感） */
+const SCENE_THRESHOLD = 0.4;
+
+/** 单次识别最多保留多少个转场点，防止极端素材把内存撑爆 */
+const SCENE_MAX = 5000;
+
+/**
+ * 从 `ffmpeg -vf "select='gt(scene,T)',showinfo"` 的 stderr 里抽出转场时间点。
+ *
+ * showinfo 每个被选中的帧打印一行，形如：
+ *   [Parsed_showinfo_2 @ 0x...] n:   0 pts: 123456 pts_time:5.164 ...
+ *
+ * 输出可能有重复（分段喂入时同一行被切两次），这里去重并升序排列。
+ *
+ * @param {string} text stderr 片段
+ * @param {number} [max] 最多返回多少个
+ * @returns {number[]} 秒，升序
+ */
+function parseShowinfoTimes(text, max) {
+  const limit = Number.isFinite(Number(max)) && Number(max) > 0
+    ? Math.floor(Number(max))
+    : SCENE_MAX;
+  const re = /Parsed_showinfo[^\n]*?pts_time:\s*(-?\d+(?:\.\d+)?)/g;
+  const seen = new Set();
+  let m;
+  while ((m = re.exec(String(text || ''))) !== null) {
+    const t = Number(m[1]);
+    if (!Number.isFinite(t) || t < 0) continue;
+    seen.add(Math.round(t * 1000) / 1000);
+    if (seen.size >= limit) break;
+  }
+  return Array.from(seen).sort((a, b) => a - b);
+}
+
 module.exports = {
   AUDIO_BPS,
   MAX_VIDEO_BPS,
   MEDIA_EXTENSIONS,
   MIN_VIDEO_BPS,
+  SCENE_MAX,
+  SCENE_THRESHOLD,
   SUBTITLE_EXTENSIONS,
   estimateVideoBitrate,
   extensionOf,
   findMediaArg,
   isMediaPath,
   isSubtitlePath,
+  parseShowinfoTimes,
   reencodeArgs,
   toConcatLine,
 };

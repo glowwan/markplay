@@ -23,10 +23,12 @@ const { SettingsStore } = require('./settings');
 const { Logger } = require('./logger');
 const {
   MEDIA_EXTENSIONS,
+  SCENE_THRESHOLD,
   SUBTITLE_EXTENSIONS,
   estimateVideoBitrate,
   findMediaArg,
   isSubtitlePath,
+  parseShowinfoTimes,
   reencodeArgs,
   toConcatLine,
 } = require('./media-utils');
@@ -53,6 +55,10 @@ let mpvProcess = null;
 let ffmpegProcess = null;
 /** 合并剪辑进行中（整条链路，包含分段与拼接，防止 run-clip 插进来） */
 let mergeInProgress = false;
+/** 转场识别子进程（同一时间只允许一个） */
+let sceneProcess = null;
+/** 已识别出的转场（按视频路径缓存，换片即失效） */
+let sceneCache = { path: '', scenes: [] };
 /** @type {MpvClient|null} */
 let mpvClient = null;
 /** mpv 是否已就绪（进程已启动且 IPC 已连接） */
@@ -945,6 +951,12 @@ function registerIpc() {
       await ensureMpv();
       await mpvClient.send(['loadfile', filePath, 'replace']);
       logInfo('[video] open', filePath);
+      // 换片：作废转场缓存，并停掉可能还在跑的识别
+      sceneCache = { path: '', scenes: [] };
+      if (sceneProcess) {
+        killChild(sceneProcess);
+        sceneProcess = null;
+      }
       currentDuration = 0;
       lastTime = 0;
       surfaceRectKey = ''; // 换片后强制重新定位视频子窗口
@@ -1186,6 +1198,133 @@ function registerIpc() {
 
     logInfo('[backup] sidecar', dest, 'removed', removed);
     return { ok: true, path: dest, removed };
+  });
+
+  // ---------- IPC：转场识别（只做提示，不写入标记） ----------
+
+  /**
+   * 用 ffmpeg 的 select+showinfo 找出画面转场点。
+   * 结果只通过事件推给渲染进程画成"浮标"，不落盘、不写标记。
+   */
+  ipcMain.handle('detect-scenes', async (event, opts) => {
+    if (!currentVideoPath) return { ok: false, error: '请先打开视频' };
+    if (sceneProcess) return { ok: false, error: '正在识别中，请稍候' };
+    if (!fs.existsSync(currentVideoPath)) {
+      return { ok: false, error: '视频文件已不存在' };
+    }
+
+    // 同一部片子上次已经识别过，直接复用
+    if (sceneCache.path === currentVideoPath && sceneCache.scenes.length) {
+      emitPlayerEvent({
+        type: 'scene-detected',
+        scenes: sceneCache.scenes,
+        cached: true,
+      });
+      return { ok: true, cached: true };
+    }
+
+    const raw = Number(opts && opts.threshold);
+    const threshold = Number.isFinite(raw)
+      ? Math.min(0.95, Math.max(0.05, raw))
+      : SCENE_THRESHOLD;
+
+    // 逗号是 filtergraph 的参数分隔符，函数参数里的逗号必须转义
+    const filter = `select='gt(scene\\,${threshold})',showinfo`;
+    const args = [
+      '-hide_banner',
+      '-nostdin',
+      '-i', currentVideoPath,
+      '-an', '-sn', '-dn',
+      '-filter:v', filter,
+      '-f', 'null',
+      '-',
+    ];
+
+    logInfo('[scenes] start', currentVideoPath, 'threshold', threshold);
+    emitPlayerEvent({ type: 'scene-start', threshold });
+
+    let proc;
+    try {
+      proc = spawn(resolveBin('ffmpeg.exe'), args, {
+        windowsHide: true,
+        stdio: ['ignore', 'ignore', 'pipe'],
+      });
+    } catch (err) {
+      emitPlayerEvent({ type: 'scene-error', message: '无法启动 ffmpeg：' + err.message });
+      return { ok: false, error: err.message };
+    }
+    sceneProcess = proc;
+
+    let buffer = '';
+    let found = [];
+    let lastEmit = 0;
+    let scannedTo = 0;
+    const startedAt = Date.now();
+
+    proc.stderr.setEncoding('utf8');
+    proc.stderr.on('data', (chunk) => {
+      buffer += chunk;
+      // showinfo 每行以 \n 结束；只保留最后一段不完整的行
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        const times = parseShowinfoTimes(line);
+        if (!times.length) continue;
+        for (const t of times) {
+          if (!found.includes(t)) found.push(t);
+        }
+        scannedTo = times[times.length - 1];
+      }
+      const now = Date.now();
+      if (now - lastEmit > 300) {
+        lastEmit = now;
+        emitPlayerEvent({
+          type: 'scene-progress',
+          found: found.length,
+          scannedTo,
+          elapsedSec: Math.round((now - startedAt) / 1000),
+        });
+      }
+    });
+
+    proc.once('error', (err) => {
+      sceneProcess = null;
+      logError('[scenes] spawn failed', err);
+      emitPlayerEvent({ type: 'scene-error', message: 'ffmpeg 启动失败：' + err.message });
+    });
+
+    proc.once('close', (code, signal) => {
+      sceneProcess = null;
+      const cancelled = signal === 'SIGTERM' || signal === 'SIGKILL' || quitting;
+      if (cancelled) {
+        logInfo('[scenes] cancelled');
+        emitPlayerEvent({ type: 'scene-cancelled', found: found.length });
+        return;
+      }
+      if (code !== 0) {
+        logError('[scenes] ffmpeg exit', code);
+        emitPlayerEvent({
+          type: 'scene-error',
+          message: `识别失败（ffmpeg 退出码 ${code}）`,
+        });
+        return;
+      }
+      found.sort((a, b) => a - b);
+      sceneCache = { path: currentVideoPath, scenes: found };
+      logInfo('[scenes] done', found.length, 'cuts in',
+        Math.round((Date.now() - startedAt) / 1000) + 's');
+      emitPlayerEvent({ type: 'scene-detected', scenes: found, threshold });
+    });
+
+    return { ok: true, threshold };
+  });
+
+  ipcMain.handle('cancel-scenes', () => {
+    if (!sceneProcess) return { ok: true, running: false };
+    logInfo('[scenes] cancel requested');
+    killChild(sceneProcess);
+    sceneProcess = null;
+    return { ok: true, running: false };
   });
 
   // ---------- IPC：ffmpeg 剪辑 ----------
@@ -1636,6 +1775,8 @@ if (!gotSingleInstanceLock) {
     }
     killChild(ffmpegProcess);
     ffmpegProcess = null;
+    killChild(sceneProcess);
+    sceneProcess = null;
     killChild(mpvProcess);
     mpvProcess = null;
   });
