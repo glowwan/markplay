@@ -209,6 +209,7 @@ video-marker-player/
 ├── README.en.md           # English README
 ├── CHANGELOG.md           # 版本更新记录
 ├── CONTRIBUTING.md        # 贡献指南（报 bug 需附什么）
+├── CODE_OF_CONDUCT.md     # 行为准则
 ├── REVIEW.md              # 实现细节 + 后续建议
 ├── LICENSE                # MIT
 ├── .github/               # issue 模板 + PR 模板

@@ -58,11 +58,12 @@ $env:ELECTRON_MIRROR = "https://npmmirror.com/mirrors/electron/"
 ## 提交前必须跑
 
 ```powershell
-npm test          # 单元测试，目前 63 个
-npm run check:dom # index.html 与渲染进程引用的 DOM id 是否对得上
+npm test               # 单元测试，目前 63 个
+npm run check:dom      # index.html 与渲染进程引用的 DOM id 是否对得上
+npm run check:templates # 改了 issue 模板才需要跑
 ```
 
-两个都过了再提 PR。CI 还没配，但我会在本地跑这两条。
+前两个都过了再提 PR。CI 还没配，但我会在本地跑这两条。
 
 **如果你的改动涉及渲染进程**（`src/renderer/*.js`），因为没法自动化测 UI，请在 PR 描述里写清楚手动验证过哪些操作。
 

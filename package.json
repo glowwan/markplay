@@ -43,6 +43,7 @@
   "productName": "MarkPlay",
   "scripts": {
     "check:dom": "node tools/check-dom.js",
+    "check:templates": "node tools/check-templates.js",
     "dist": "electron-builder --win --x64",
     "fetch-bin": "node tools/fetch-binaries.js",
     "start": "electron .",
