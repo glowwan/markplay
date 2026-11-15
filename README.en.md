@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078d4.svg)](#requirements)
-[![Version](https://img.shields.io/badge/version-v1.6.0-green.svg)](#)
+[![Version](https://img.shields.io/badge/version-v1.7.0-green.svg)](#)
 
 [中文](README.md) | **English**
 
@@ -56,7 +56,7 @@ MarkPlay turns those three steps into one continuous flow of gestures and shortc
 
 Sidebar panels, top to bottom: **Markers** → **Ranges** → **Clip** → **Export**.
 
-The control bar sits below the video rather than floating over it — the video surface is mpv's native child window, which HTML can't overlay (see [Known limitations](#known-limitations)).
+A floating control bar fades in near the bottom of the video when the pointer approaches (play/pause, time, seek bar, volume, mute, fullscreen) and fades out after 2.2s of inactivity. The video surface is mpv's native child window, which HTML can't overlay directly, so the floating bar lives in a separate transparent window layered on top.
 
 ## Features
 
@@ -69,6 +69,7 @@ The control bar sits below the video rather than floating over it — the video 
 - **A–B loop** — `L` loops the selected range; the button shows `A–B 1` and follows range switches.
 - **2x speed** — left-click the video for 2x forward, right-click for 2x reverse (reverse is simulated: pause + timed rewind, since mpv doesn't support negative speed).
 - **Fullscreen** — `F11` or ⛶, `ESC` to exit.
+- **Floating control bar** — fades in near the bottom when the pointer approaches; play/pause, time, seek bar, volume, mute, fullscreen. Wheel and keyboard shortcuts keep working.
 - **Subtitles** — auto-loads same-named subtitle files; drop a `.srt` / `.ass` / `.vtt` into the window to attach manually.
 
 **Markers & ranges**
@@ -192,7 +193,7 @@ $env:ELECTRON_BUILDER_BINARIES_MIRROR = "https://npmmirror.com/mirrors/electron-
 ## Known limitations
 
 1. **The installer is unsigned** — SmartScreen warns on first run; click More info → Run anyway.
-2. **The video surface is a native child window** — HTML can't be drawn on top of it, so the control bar sits below the video instead of floating over it.
+2. **The video surface is a native child window** — HTML can't be drawn directly on top of it, so the floating control bar uses a separate transparent window layered above; alignment relies on the main process keeping it in sync, so a few edge cases (exotic DPI / multi-monitor) may show slight offset.
 3. **Scrubbing feel needs real-device tuning** — trackpad drivers differ widely.
 4. **`-c copy` cuts snap to keyframes** — the cut point may be off by a few tenths of a second from your in/out. Re-encoding is frame-accurate, at the cost of a second compression pass.
 5. **2x reverse is simulated** — mpv doesn't support negative playback speed.

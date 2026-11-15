@@ -79,6 +79,12 @@ let quitting = false;
 let settings = null;
 /** 上一次应用到视频子窗口的矩形键，避免 500ms 轮询时无意义地反复 setBounds */
 let surfaceRectKey = '';
+/** @type {BrowserWindow|null} 悬浮控件层的透明覆盖窗口 */
+let overlayWindow = null;
+/** 悬浮层是否处于"可点击"状态（关闭鼠标穿透时） */
+let overlayInteractive = false;
+/** 悬浮层上一次应用的矩形键 */
+let overlayRectKey = '';
 /** 启动参数里带的视频路径（双击关联文件 / 拖到 exe 上） */
 let startupFile = '';
 /** 当前视频路径（菜单"在文件夹中显示"用） */
@@ -168,6 +174,17 @@ function emitPlayerEvent(payload) {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('player-event', payload);
   }
+}
+
+/**
+ * 向悬浮层推送状态（只发它关心的字段）。
+ * @param {object} patch
+ */
+function emitOverlayState(patch) {
+  if (!overlayWindow || overlayWindow.isDestroyed()) return;
+  try {
+    overlayWindow.webContents.send('overlay-state', patch);
+  } catch { /* 窗口正在销毁，忽略 */ }
 }
 
 /**
@@ -299,6 +316,10 @@ function createMainWindow() {
   mainWindow.on('unmaximize', scheduleWindowSave);
 
   mainWindow.on('closed', () => {
+    if (overlayWindow && !overlayWindow.isDestroyed()) {
+      overlayWindow.destroy();
+    }
+    overlayWindow = null;
     mainWindow = null;
     surfaceWindow = null;
   });
@@ -363,6 +384,57 @@ function createSurfaceWindow() {
   console.log('[main] surface HWND =', surfaceHwnd);
 
   surfaceWindow.loadURL('about:blank');
+}
+
+/**
+ * 创建悬浮控件层：frameless + transparent 的覆盖窗口，叠在 mpv 子窗口之上。
+ *
+ * 为什么需要这一层：mpv 用 --wid 渲染到原生子窗口，主窗口的 HTML 画不到它上面。
+ * 再开一层透明窗口承载控件，是达成"控件悬浮在画面上"成本最低的方式，
+ * 不必引入 libmpv 的 native 构建（本机没有 C++ 编译器）。
+ *
+ * 默认整窗鼠标穿透，这样滚轮仍然落到 mpv 上做 scrub；
+ * 只有指针进入控件条范围时，渲染进程才会请求关闭穿透。
+ */
+function createOverlayWindow() {
+  if (!config.OVERLAY_ENABLED) return;
+
+  overlayWindow = new BrowserWindow({
+    parent: mainWindow,
+    frame: false,
+    transparent: true,
+    show: false,
+    skipTaskbar: true,
+    // 可聚焦：Windows 上 focusable:false 的窗口收不到鼠标点击。
+    // 拿到焦点后由 overlay-preload 把按键转回主窗口，快捷键不会失灵。
+    focusable: true,
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    closable: false,
+    hasShadow: false,
+    backgroundColor: '#00000000',
+    webPreferences: {
+      preload: path.join(__dirname, 'overlay', 'overlay-preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+      backgroundThrottling: false,
+    },
+  });
+
+  overlayWindow.loadFile(path.join(__dirname, 'overlay', 'index.html'));
+
+  // 默认穿透；forward:true 让窗口仍能收到 mousemove，用于命中检测
+  overlayWindow.setIgnoreMouseEvents(true, { forward: true });
+  overlayInteractive = false;
+
+  overlayWindow.on('closed', () => {
+    overlayWindow = null;
+  });
+
+  console.log('[main] overlay window created');
 }
 
 // ---------- mpv 生命周期 ----------
@@ -485,17 +557,46 @@ async function startMpv() {
   mpvClient = client;
   attachMpvHandlers(client);
 
-  // 订阅关键属性：1=time-pos, 2=duration, 3=pause, 4=container-fps
+  // 订阅关键属性：1=time-pos, 2=duration, 3=pause, 4=container-fps, 5=volume, 6=mute
   try {
     await Promise.all([
       client.observe(1, 'time-pos'),
       client.observe(2, 'duration'),
       client.observe(3, 'pause'),
       client.observe(4, 'container-fps'),
+      client.observe(5, 'volume'),
+      client.observe(6, 'mute'),
     ]);
   } catch (err) {
     emitPlayerEvent({ type: 'mpv-error', message: `订阅 mpv 属性失败: ${err.message}` });
   }
+
+  // 主动拉一次音量/静音/暂停/时长，让悬浮层在视频载入后立即有正确初始状态
+  syncOverlayState(client);
+}
+
+/**
+ * 主动拉取当前播放状态并推给悬浮层。
+ * observe 只在"变化"时触发，首次打开时 volume 等属性不会变，所以需要这一发。
+ */
+async function syncOverlayState(client) {
+  if (!overlayWindow || overlayWindow.isDestroyed()) return;
+  const c = client || mpvClient;
+  if (!c) return;
+  try {
+    const [vol, mute, paused, dur] = await Promise.all([
+      c.send(['get_property', 'volume']),
+      c.send(['get_property', 'mute']),
+      c.send(['get_property', 'pause']),
+      c.send(['get_property', 'duration']),
+    ]);
+    const patch = {};
+    if (typeof vol.data === 'number') patch.volume = Math.round(Math.min(100, Math.max(0, vol.data)));
+    patch.muted = mute.data === true;
+    patch.paused = paused.data === true;
+    if (typeof dur.data === 'number' && dur.data > 0) patch.duration = dur.data;
+    emitOverlayState(patch);
+  } catch { /* 拉取失败不致命，observe 会在下次变化时补上 */ }
 }
 
 /**
@@ -512,21 +613,32 @@ function attachMpvHandlers(client) {
         lastTime = data;
         lastTimeSentAt = now;
         emitPlayerEvent({ type: 'mpv-time', t: data, dur: currentDuration });
+        emitOverlayState({ currentTime: data, duration: currentDuration });
       }
     } else if (id === 2) {
       // duration：变化才发
       if (typeof data === 'number' && !Number.isNaN(data) && data !== currentDuration) {
         currentDuration = data;
         emitPlayerEvent({ type: 'mpv-duration', dur: data });
+        emitOverlayState({ duration: data });
       }
     } else if (id === 3) {
       // pause：直接转发
       emitPlayerEvent({ type: 'mpv-paused', paused: data === true });
+      emitOverlayState({ paused: data === true });
     } else if (id === 4) {
       // container-fps：素材帧率，EDL/帧号换算要用
       if (typeof data === 'number' && isFinite(data) && data > 0) {
         emitPlayerEvent({ type: 'mpv-fps', fps: data });
       }
+    } else if (id === 5) {
+      // volume：悬浮层音量滑块要同步（用户在主窗口拖动时）
+      if (typeof data === 'number' && isFinite(data)) {
+        emitOverlayState({ volume: Math.round(Math.min(100, Math.max(0, data))) });
+      }
+    } else if (id === 6) {
+      // mute
+      emitOverlayState({ muted: data === true });
     } else {
       console.log('[main] 未处理的属性变化:', name, data);
     }
@@ -722,10 +834,33 @@ function applyVideoRect(rect) {
     surfaceWindow.setBounds({ x, y, width: w, height: h }, false);
   }
 
+  // 悬浮层跟着同一个矩形走
+  applyOverlayRect(x, y, w, h);
+
   // 首次定位后显示容器窗口
   if (mpvReady && !surfaceWindow.isVisible()) {
     surfaceWindow.show();
   }
+}
+
+/**
+ * 把悬浮层摆到与视频子窗口相同的位置，并确保它在最上层。
+ * 单独抽出来是因为全屏切换时也要用。
+ */
+function applyOverlayRect(x, y, w, h) {
+  if (!overlayWindow || overlayWindow.isDestroyed()) return;
+  const key = `${x},${y},${w},${h}`;
+  if (key !== overlayRectKey) {
+    overlayRectKey = key;
+    overlayWindow.setBounds({ x, y, width: w, height: h }, false);
+  }
+  if (!overlayWindow.isVisible()) {
+    overlayWindow.showInactive(); // 显示但不抢焦点
+  }
+  // 兄弟窗口的层叠顺序靠 creation order，show 之后主动抬一次更稳
+  try {
+    overlayWindow.moveTop();
+  } catch { /* 个别平台不支持，忽略 */ }
 }
 
 // ---------- 视频子窗口全屏 ----------
@@ -752,6 +887,14 @@ function toggleFullscreen() {
       surfaceWindow.setBounds(d.bounds);
     }
   }, 150);
+
+  // 悬浮层跟着全屏，否则全屏后就没有控件了
+  if (overlayWindow && !overlayWindow.isDestroyed()) {
+    const d = screen.getDisplayMatching(surfaceWindow.getBounds());
+    overlayRectKey = ''; // 强制重算
+    applyOverlayRect(d.bounds.x, d.bounds.y, d.bounds.width, d.bounds.height);
+  }
+
   emitPlayerEvent({ type: 'fullscreen', fullscreen: true });
 }
 
@@ -769,6 +912,9 @@ function exitFullscreen() {
   }
   savedSurfaceBounds = null;
   emitPlayerEvent({ type: 'fullscreen', fullscreen: false });
+  // 退出全屏后按缓存的视频矩形重新摆放悬浮层
+  overlayRectKey = '';
+  if (lastVideoRect) applyVideoRect(lastVideoRect);
 }
 
 /**
@@ -1049,6 +1195,65 @@ function registerIpc() {
     if (level === 'error') logError('[renderer]', text);
     else if (level === 'warn') logWarn('[renderer]', text);
     else logInfo('[renderer]', text);
+  });
+
+  // ---------- 悬浮控件层 ----------
+
+  // 渲染进程请求切换鼠标穿透（指针进入/离开控件条时）
+  ipcMain.on('overlay-interactive', (event, interactive) => {
+    if (!overlayWindow || overlayWindow.isDestroyed()) return;
+    if (overlayInteractive === interactive) return;
+    overlayInteractive = interactive;
+    overlayWindow.setIgnoreMouseEvents(!interactive, { forward: true });
+  });
+
+  // 悬浮层转发键盘事件回主窗口（overlay 拿到焦点后快捷键才不失效）
+  ipcMain.on('overlay-key', (event, keyEvent) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (!keyEvent || typeof keyEvent !== 'object') return;
+    mainWindow.webContents.send('overlay-key', keyEvent);
+  });
+
+  // 悬浮层的播放控制命令
+  ipcMain.handle('overlay-command', async (event, name, arg) => {
+    if (!mpvClient) return { ok: false };
+    try {
+      switch (name) {
+        case 'toggle-play': {
+          const r = await mpvClient.send(['get_property', 'pause']);
+          await mpvClient.send(['set_property', 'pause', !(r.data === true)]);
+          return { ok: true };
+        }
+        case 'seek-ratio': {
+          const ratio = Number(arg);
+          if (!isFinite(ratio)) return { ok: false };
+          const d = currentDuration;
+          if (!(d > 0)) return { ok: false };
+          await mpvClient.send(['set_property', 'time-pos', Math.min(d, Math.max(0, ratio * d))]);
+          return { ok: true };
+        }
+        case 'volume': {
+          const v = Number(arg);
+          if (!isFinite(v)) return { ok: false };
+          await mpvClient.send(['set_property', 'volume', Math.min(100, Math.max(0, Math.round(v)))]);
+          return { ok: true };
+        }
+        case 'toggle-mute': {
+          const r = await mpvClient.send(['get_property', 'mute']);
+          await mpvClient.send(['set_property', 'mute', !(r.data === true)]);
+          return { ok: true };
+        }
+        case 'toggle-fullscreen': {
+          toggleFullscreen();
+          return { ok: true };
+        }
+        default:
+          return { ok: false };
+      }
+    } catch (err) {
+      logWarn('[overlay] command failed:', name, err.message);
+      return { ok: false };
+    }
   });
 
   // 2x 播放 / 2x 倒放
@@ -1745,6 +1950,7 @@ if (!gotSingleInstanceLock) {
 
     createMainWindow();
     createSurfaceWindow();
+    createOverlayWindow();
     registerIpc();
     buildMenu();
 
@@ -1766,6 +1972,7 @@ if (!gotSingleInstanceLock) {
       if (BrowserWindow.getAllWindows().length === 0) {
         createMainWindow();
         createSurfaceWindow();
+        createOverlayWindow();
       }
     });
   });
@@ -1785,6 +1992,10 @@ if (!gotSingleInstanceLock) {
       mpvClient.close();
       mpvClient = null;
     }
+    if (overlayWindow && !overlayWindow.isDestroyed()) {
+      overlayWindow.destroy();
+    }
+    overlayWindow = null;
     killChild(ffmpegProcess);
     ffmpegProcess = null;
     killChild(sceneProcess);

@@ -744,3 +744,73 @@ OV 要积累下载量，EV 才历史性地更快。这不是配置问题。
 ### 剩下真的只有一件事
 
 买证书 → 设两个环境变量 → `npm run dist`。命令一行都不用改。
+
+## 二十二、悬浮控制条（v1.7.0）：透明覆盖窗口
+
+### 为什么不是 libmpv
+
+用户点名"做 libmpv 重构，控件能悬浮在画面上"。查了本机环境后确认：**没有 Visual Studio / Build Tools**，
+native addon 这条路编译不了。npm 上也没有能直接用的预编译绑定——`node-libmpv` 还是 2018 年的 `nan` 版本
+（装不上 Node 24），`electron-libmpv` 虽然新（2026-07）但 `gypfile=true` 同样要编译。
+
+所以目标不变、手段换掉：**用透明覆盖窗口叠在 mpv 子窗口上**，达成"控件悬浮在画面上"，
+不引入 native 构建，而且 `config.OVERLAY_ENABLED = false` 可以随时回退。
+
+### 结构
+
+```
+src/overlay/
+├── index.html          # 只有一条 #pill 悬浮控制条
+├── overlay.css         # html/body 全透明，只有 .pill 有内容
+├── overlay.js          # 交互逻辑
+└── overlay-preload.js  # contextBridge 暴露 4 个 API
+```
+
+主进程新增 `createOverlayWindow()`，窗口属性关键在三点：
+
+```js
+transparent: true,
+backgroundColor: '#00000000',
+setIgnoreMouseEvents(true, { forward: true })
+```
+
+`forward: true` 让穿透状态仍能收到 `mousemove`——否则无法做"指针是否在控件条上"的命中检测。
+
+### 鼠标穿透的状态机
+
+这是整个功能最容易做错的地方，写成显式状态机：
+
+- 默认**穿透**：滚轮直接落到 mpv 上做 scrub，不拦截任何交互；
+- `overlay.js` 在 `mousemove` 里做命中检测，指针进入控件条 → 请求主进程 `setIgnoreMouseEvents(false)`；
+- 指针离开、或控件条淡出 → 恢复穿透；
+- `dragging`（拖进度条）期间强制保持非穿透，松手再按位置决定是否恢复。
+
+窗口还有一个坑：Windows 上 `focusable:false` 的窗口**收不到鼠标点击**。所以 overlay 窗口是可聚焦的，
+代价是点击后焦点可能落到 overlay 上——于是 overlay 侧把 `keydown` 全部 `preventDefault` 并转发回主窗口，
+主窗口渲染进程复用 `handleKeydown`，`Space` / `A–G` / `Ctrl+Z` 不会失灵。
+
+### 状态同步
+
+主进程给 overlay 开了一条 `overlay-state` 通道，只推它关心的字段：`currentTime / duration / paused / volume / muted`。
+为此 `startMpv` 里多订阅了 `volume`（id 5）和 `mute`（id 6），并在连接后主动 `syncOverlayState` 拉一次初始值——
+`observe` 只在"变化"时触发，首次打开时音量不变就不会发事件，悬浮层的滑块会一直是 100 的默认值。
+
+### 全屏
+
+全屏是视频子窗口 `setFullScreen`，悬浮层不是它的 child，不会自动跟着全屏。
+所以在 `toggleFullscreen` / `exitFullscreen` 里显式地：
+全屏时把 overlay 铺满所在显示器；退出时按缓存的 `lastVideoRect` 复位。
+
+### 已知的边界
+
+- 覆盖窗口和视频子窗口是**两个窗口**，靠主进程 `applyVideoRect` 里同步 `setBounds` 保持对齐。
+  极端情况（多显示器不同缩放、窗口快速拖动）可能有轻微错位——README 里已经如实写了。
+- `moveTop()` 用来保证层叠顺序，但兄弟窗口的 z-order 在 Windows 上不完全可控，
+  这是 `--wid` 方案绕不开的代价。真正的根治还是 libmpv（见 docs/LIBMPV-MIGRATION.md），
+  等有 C++ 工具链再做。
+
+### 测试与检查
+
+- `tools/check-dom.js` 扩展为校验两个页面（主窗口 + overlay），overlay 的 10 个 id 与 10 个引用一一对应；
+- 132 个单元测试全过（本次未改纯逻辑，无新增用例）；
+- 语法检查 0 失败。

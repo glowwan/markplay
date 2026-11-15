@@ -90,6 +90,17 @@ const SNAP_TO_FRAME = true;
 /** 每个视频最多保留多少个 Ctrl+S 备份（超出后删最旧的） */
 const SIDECAR_BACKUP_KEEP = 10;
 
+/**
+ * 是否启用悬浮控件层（叠在视频上的播放控制条）。
+ *
+ * 实现方式是一个独立透明窗口，不用 libmpv 重构——所以可以随时关掉回退。
+ * 设为 false 时行为与之前完全一致（只能用视频下方那条控制条）。
+ */
+const OVERLAY_ENABLED = true;
+
+/** 悬浮控件条在鼠标停止移动后多久淡出（毫秒） */
+const OVERLAY_HIDE_DELAY_MS = 2200;
+
 module.exports = {
   PIPE_NAME,
   SCRUB_SENSITIVITY,
@@ -106,6 +117,8 @@ module.exports = {
   DEFAULT_FPS,
   SNAP_TO_FRAME,
   SIDECAR_BACKUP_KEEP,
+  OVERLAY_ENABLED,
+  OVERLAY_HIDE_DELAY_MS,
   REV2X_INTERVAL_MS,
   REV2X_STEP,
 };
