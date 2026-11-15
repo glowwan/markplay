@@ -146,6 +146,19 @@
       <button id="btn-speed-rev" class="icon-btn speed-btn" title="2 倍速倒放 / 恢复 (Z)；也可在视频画面上点鼠标右键">◀2x</button>
       <button id="btn-loop" class="icon-btn speed-btn" title="A–B 循环（L）：按剪辑面板选中的区间循环播放">A–B</button>
       <button id="btn-scenes" class="icon-btn speed-btn" title="识别画面转场，在时间轴上显示提示浮标（只是提示，不会打点）">转场</button>
+      <!-- 转场灵敏度：一次扫描收全部分数，滑块即时过滤，不重扫 -->
+      <div id="scene-panel" hidden>
+        <div class="scene-panel-row">
+          <span class="scene-panel-label">灵敏度</span>
+          <input type="range" id="scene-threshold" min="0.02" max="0.9" step="0.02" value="0.4">
+          <span id="scene-threshold-value">0.40</span>
+        </div>
+        <div class="hint" id="scene-threshold-hint">已收集 -- 帧</div>
+        <div class="range-actions">
+          <button id="btn-scene-rescan" class="btn" title="重新扫描（换片或想收更低的分数时才需要）">重新扫描</button>
+          <button id="btn-scene-close" class="btn">关闭</button>
+        </div>
+      </div>
       <div class="zoom-wrap" title="时间轴缩放：Ctrl+滚轮 / Ctrl+加号减号；Shift+滚轮平移">
         <button id="btn-zoom-out" class="mini-btn" title="缩小">−</button>
         <span id="zoom-label">全片</span>

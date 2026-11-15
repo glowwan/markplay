@@ -54,9 +54,10 @@
     looping: false,      // A–B 循环是否开启
     fps: 0,              // 素材帧率（mpv container-fps；0 表示未知）
     pendingIn: null,     // 已按"设入点"但还没设出点的时间（秒），null 表示未设置
-    scenes: [],          // 识别出的转场时间点（秒），仅用于时间轴提示
+    scenes: [],          // 扫描结果 [{t, score}]，仅用于时间轴提示，不是标记
+    threshold: 0.4,      // 当前灵敏度阈值，滑动时只在本地过滤
     showScenes: false,   // 是否显示转场浮标
-    scanning: false      // 是否正在识别转场
+    scanning: false      // 是否正在扫描
   };
   var timelineDragging = false; // 时间轴指针拖拽 seek 中
   var preferredVolume = 100;    // 记住的音量（新开 mpv 时重新应用）
@@ -563,6 +564,8 @@
     updateZoomLabel();
     renderScenes();
     updateSceneButton();
+    updateScenePanel();
+    showScenePanel(false);
     document.title = basename(path) + ' — MarkPlay';
     // 换片：清空旧标记，再读新片的 sidecar
     Markers.clear();
@@ -655,6 +658,15 @@
   }
 
   // ---------- 转场提示浮标 ----------
+
+  /**
+   * 当前阈值下命中的转场时间（升序）。
+   * 主进程一次扫描返回全部帧的分数，这里只做过滤，所以拖动阈值是即时的。
+   */
+  function visibleSceneTimes() {
+    return Scenes.filterByThreshold(state.scenes, state.threshold);
+  }
+
   /** 重画时间轴上的转场浮标（只提示，不是标记） */
   function renderScenes() {
     var layer = $('scene-bubbles');
@@ -666,7 +678,7 @@
     if (!tl) return;
     var widthPx = tl.getBoundingClientRect().width;
     var view = TimelineView.getState();
-    var keep = Scenes.thin(state.scenes, view, widthPx);
+    var keep = Scenes.thin(visibleSceneTimes(), view, widthPx);
 
     keep.forEach(function (t) {
       var ratio = TimelineView.toRatio(t);
@@ -687,25 +699,113 @@
   function updateSceneButton() {
     var btn = $('btn-scenes');
     if (!btn) return;
+    var hits = state.scenes.length ? visibleSceneTimes().length : 0;
     btn.classList.toggle('active', state.showScenes);
     btn.classList.toggle('busy', state.scanning);
     if (state.scanning) {
       btn.textContent = '识别中';
       btn.title = '正在识别转场…点击取消';
-    } else if (state.showScenes) {
-      btn.textContent = '转场 ' + state.scenes.length;
-      btn.title = '已显示 ' + state.scenes.length + ' 个转场提示，点击隐藏';
+    } else if (state.scenes.length && state.showScenes) {
+      btn.textContent = '转场 ' + hits;
+      btn.title = '当前阈值 ' + state.threshold.toFixed(2) + ' 下命中 ' + hits + ' 处，点击隐藏'
+        + '\n再点一次右侧的灵敏度面板可调整阈值';
+    } else if (state.scenes.length) {
+      btn.textContent = '转场';
+      btn.title = '已有 ' + state.scenes.length + ' 帧分数，点击显示提示浮标';
     } else {
       btn.textContent = '转场';
       btn.title = '识别画面转场，在时间轴上显示提示浮标（只是提示，不会打点）';
     }
   }
 
-  function startSceneScan() {
+  /**
+   * 扫描完成后的收尾：当前阈值一处都没命中时，自动降到"能命中若干处"的档位。
+   * 行车记录仪这类连续运动的素材帧间差异普遍很小，0.4 这种默认值往往一个都不过。
+   */
+  function afterSceneDetected(cached) {
+    var total = state.scenes.length;
+    if (!total) {
+      status('没有收集到画面变化（画面几乎静止，或视频太短）');
+      return;
+    }
+    var hits = visibleSceneTimes().length;
+    if (hits > 0) {
+      status('收集 ' + total + ' 帧变化，阈值 ' + state.threshold.toFixed(2)
+        + ' 命中 ' + hits + ' 处'
+        + (cached ? '（复用上次结果）' : '')
+        + ' · 仅提示，点浮标可跳转', 'ok');
+      return;
+    }
+
+    var suggested = Scenes.suggestThreshold(state.scenes, 8);
+    if (suggested && suggested > 0.01) {
+      state.threshold = Math.min(0.9, Math.max(0.02, suggested));
+      renderScenes();
+      updateSceneButton();
+      updateScenePanel();
+      var next = visibleSceneTimes().length;
+      status('阈值 0.40 一处都没命中，已自动降到 ' + state.threshold.toFixed(2)
+        + '（命中 ' + next + ' 处）。可在灵敏度面板继续微调', next ? 'ok' : 'normal');
+      return;
+    }
+    status('收集了 ' + total + ' 帧，但差异都很微弱，可在灵敏度面板把阈值拖到最低试试');
+  }
+
+  /** 同步灵敏度面板上的数值与提示 */
+  function updateScenePanel() {
+    var slider = $('scene-threshold');
+    var valueEl = $('scene-threshold-value');
+    var hintEl = $('scene-threshold-hint');
+    if (slider) slider.value = String(state.threshold);
+    if (valueEl) valueEl.textContent = state.threshold.toFixed(2);
+    if (!hintEl) return;
+
+    if (!state.scenes.length) {
+      hintEl.textContent = '还没扫描';
+      return;
+    }
+    var hits = visibleSceneTimes().length;
+    var total = state.scenes.length;
+    if (hits === 0) {
+      hintEl.textContent = '收集 ' + total + ' 帧，当前阈值没有命中 —— 往左拖降低灵敏度门槛';
+      hintEl.classList.add('set');
+    } else {
+      hintEl.textContent = '收集 ' + total + ' 帧，命中 ' + hits + ' 处';
+      hintEl.classList.remove('set');
+    }
+  }
+
+  function showScenePanel(show) {
+    var panel = $('scene-panel');
+    if (!panel) return;
+    panel.hidden = !show;
+    if (show) updateScenePanel();
+  }
+
+  /** 拖动灵敏度：即时过滤 + 重画，不重扫 */
+  function onThresholdInput() {
+    var slider = $('scene-threshold');
+    if (!slider) return;
+    var v = Number(slider.value);
+    if (!isFinite(v)) return;
+    state.threshold = Math.min(0.99, Math.max(0.01, v));
+    state.showScenes = true;
+    renderScenes();
+    updateSceneButton();
+    updateScenePanel();
+  }
+
+  function startSceneScan(force) {
     if (!requireVideo()) return;
+    if (state.scanning) return;
+    if (force) {
+      state.scenes = [];
+      state.showScenes = false;
+    }
     state.scanning = true;
     updateSceneButton();
-    status('正在识别画面转场…（长片可能要几分钟）');
+    updateScenePanel();
+    status('正在扫描画面变化…（长片可能两三分钟，只需扫一次，之后调阈值不用再等）');
     window.markplay.detectScenes().then(function (r) {
       if (!r || !r.ok) {
         state.scanning = false;
@@ -728,7 +828,8 @@
 
   /** 跳到上一个/下一个转场提示点（只跳转，不打点） */
   function jumpToScene(dir) {
-    var t = Scenes.nearest(state.scenes, state.currentTime, dir);
+    var times = visibleSceneTimes();
+    var t = Scenes.nearest(times, state.currentTime, dir);
     if (t == null) {
       status(dir === 'prev' ? '前面没有转场提示了' : '后面没有转场提示了');
       return;
@@ -745,11 +846,15 @@
       state.showScenes = !state.showScenes;
       renderScenes();
       updateSceneButton();
+      updateScenePanel();
+      var hits = visibleSceneTimes().length;
       status(state.showScenes
-        ? '已显示 ' + state.scenes.length + ' 个转场提示'
+        ? (hits ? '已显示 ' + hits + ' 处转场提示' : '当前阈值没有命中，可在灵敏度面板调低')
         : '已隐藏转场提示');
+      if (state.showScenes) showScenePanel(true);
       return;
     }
+    showScenePanel(true);
     startSceneScan();
   }
 
@@ -962,26 +1067,27 @@
         case 'scene-start':
           state.scanning = true;
           updateSceneButton();
+          updateScenePanel();
           break;
         case 'scene-progress':
-          status('正在识别转场…已找到 ' + ev.found + ' 处'
-            + (ev.scannedTo > 0 ? '，扫描到 ' + Exporter.tc(ev.scannedTo) : '')
+          status('正在扫描画面变化…已收 ' + (ev.frames || 0) + ' 帧'
+            + (ev.scannedTo > 0 ? '，到 ' + Exporter.tc(ev.scannedTo) : '')
             + '（' + ev.elapsedSec + 's）');
           break;
         case 'scene-detected':
           state.scanning = false;
-          state.scenes = Array.isArray(ev.scenes) ? ev.scenes : [];
+          state.scenes = Array.isArray(ev.scores) ? ev.scores : [];
           state.showScenes = true;
           renderScenes();
           updateSceneButton();
-          status(state.scenes.length
-            ? '识别到 ' + state.scenes.length + ' 处转场（仅提示，点击浮标可跳转）'
-            : '没有识别到转场（画面变化不明显，或阈值太高）',
-            state.scenes.length ? 'ok' : 'normal');
+          updateScenePanel();
+          showScenePanel(true);
+          afterSceneDetected(ev.cached === true);
           break;
         case 'scene-cancelled':
           state.scanning = false;
           updateSceneButton();
+          updateScenePanel();
           break;
         case 'scene-error':
           state.scanning = false;
@@ -1132,6 +1238,18 @@
     $('btn-speed-rev').addEventListener('click', function () { toggleSpeed('rev2x'); });
     $('btn-loop').addEventListener('click', toggleLoop);
     $('btn-scenes').addEventListener('click', toggleScenes);
+
+    // 转场灵敏度面板：拖动即时过滤，不需要重扫
+    var thr = $('scene-threshold');
+    if (thr) {
+      thr.value = String(state.threshold);
+      thr.addEventListener('input', onThresholdInput);
+      thr.addEventListener('change', onThresholdInput);
+    }
+    var rescan = $('btn-scene-rescan');
+    if (rescan) rescan.addEventListener('click', function () { startSceneScan(true); });
+    var sceneClose = $('btn-scene-close');
+    if (sceneClose) sceneClose.addEventListener('click', function () { showScenePanel(false); });
     $('btn-zoom-in').addEventListener('click', function () { zoomStep(true); });
     $('btn-zoom-out').addEventListener('click', function () { zoomStep(false); });
     $('btn-zoom-fit').addEventListener('click', zoomFit);
@@ -1228,6 +1346,7 @@
     updateRangeHint();
     updateZoomLabel();
     updateSceneButton();
+    updateScenePanel();
 
     // 时间轴宽度变化（窗口缩放）后浮标可能过密/过疏，重画一次
     window.addEventListener('resize', renderScenes);

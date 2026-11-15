@@ -204,6 +204,7 @@ button:disabled, input:disabled, select:disabled {
 /* ---------- 底部控制条（110px） ---------- */
 #controlbar {
   height: 124px; flex: none;
+  position: relative; /* 让 #scene-panel 能以它为定位基准浮在上方 */
   background: var(--bg2); border-top: 1px solid var(--border);
   display: flex; flex-direction: column; justify-content: center;
   padding: 8px 14px 12px; gap: 10px;
@@ -399,6 +400,24 @@ button:disabled, input:disabled, select:disabled {
 #btn-scenes.active { border-color: #ffc107; color: #ffc107; box-shadow: 0 0 6px rgba(255,193,7,.5); }
 #btn-scenes.busy { border-color: #ffc107; color: #ffc107; animation: pulse 1s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: .45; } }
+
+/* 转场灵敏度面板：浮在控制条上方，不挤压布局 */
+#scene-panel {
+  position: absolute; right: 12px; bottom: 100%;
+  margin-bottom: 8px; width: 280px; padding: 10px 12px;
+  background: var(--bg2); border: 1px solid #ffc107; border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .5); z-index: 30;
+}
+#scene-panel[hidden] { display: none; }
+.scene-panel-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.scene-panel-label { font-size: 12px; color: var(--muted); flex: none; }
+#scene-threshold { flex: 1; min-width: 0; accent-color: #ffc107; }
+#scene-threshold-value {
+  flex: none; font-family: Consolas, monospace; font-size: 12px;
+  color: #ffc107; min-width: 34px; text-align: right;
+}
+#scene-threshold-hint { margin-bottom: 8px; }
+#scene-panel .range-actions { margin-bottom: 0; }
 
 #marker-ticks { position: absolute; inset: 0; pointer-events: none; }.tick {
   position: absolute; top: 18px; height: 22px; width: 4px;

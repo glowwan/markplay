@@ -83,3 +83,59 @@ test('nearest：正好停在转场上时视为同一个点（避免原地跳）'
   assert.equal(S.nearest([3, 6], 6, 'next'), null, '已在 6 上，不该跳回 6');
   assert.equal(S.nearest([3, 6], 6, 'prev'), 3, '应该跳到前一个 3');
 });
+
+// ---------- 阈值过滤 ----------
+
+const SCORES = [
+  { t: 1, score: 0.02 },
+  { t: 2, score: 0.15 },
+  { t: 3, score: 0.4 },
+  { t: 4, score: 0.8 },
+];
+
+test('filterByThreshold：按分数筛出时间点，升序', () => {
+  const S = makeScenes();
+  eq(S.filterByThreshold(SCORES, 0.1), [2, 3, 4]);
+  eq(S.filterByThreshold(SCORES, 0.4), [3, 4]);
+  eq(S.filterByThreshold(SCORES, 0.81), []);
+});
+
+test('filterByThreshold：等于阈值算命中', () => {
+  const S = makeScenes();
+  eq(S.filterByThreshold(SCORES, 0.4), [3, 4]);
+});
+
+test('filterByThreshold：乱序输入也会输出升序', () => {
+  const S = makeScenes();
+  const shuffled = [SCORES[3], SCORES[0], SCORES[2]];
+  eq(S.filterByThreshold(shuffled, 0.01), [1, 3, 4]);
+});
+
+test('filterByThreshold：非法输入安全返回', () => {
+  const S = makeScenes();
+  eq(S.filterByThreshold(null, 0.5), []);
+  eq(S.filterByThreshold(SCORES, NaN), []);
+  eq(S.filterByThreshold([{ t: 1 }, { t: 2, score: 0.5 }], 0.1), [2]);
+});
+
+test('suggestThreshold：找出能让 n 个点通过的最低阈值', () => {
+  const S = makeScenes();
+  // 分数降序 0.8, 0.4, 0.15, 0.02；要 2 个 → 第 2 高是 0.4
+  assert.equal(S.suggestThreshold(SCORES, 2), 0.4);
+  assert.equal(S.suggestThreshold(SCORES, 1), 0.8);
+  assert.equal(S.suggestThreshold(SCORES, 4), 0.02);
+});
+
+test('suggestThreshold：样本不足时返回 null', () => {
+  const S = makeScenes();
+  assert.equal(S.suggestThreshold(SCORES, 10), null);
+  assert.equal(S.suggestThreshold([], 1), null);
+  assert.equal(S.suggestThreshold(null, 1), null);
+});
+
+test('suggestThreshold 与 filterByThreshold 自洽：建议值至少能命中 n 个', () => {
+  const S = makeScenes();
+  const need = 2;
+  const th = S.suggestThreshold(SCORES, need);
+  assert.ok(S.filterByThreshold(SCORES, th).length >= need, '建议阈值下应命中足够数量');
+});

@@ -23,12 +23,12 @@ const { SettingsStore } = require('./settings');
 const { Logger } = require('./logger');
 const {
   MEDIA_EXTENSIONS,
-  SCENE_THRESHOLD,
+  SCENE_SCORE_FLOOR,
   SUBTITLE_EXTENSIONS,
   estimateVideoBitrate,
   findMediaArg,
   isSubtitlePath,
-  parseShowinfoTimes,
+  parseSceneScores,
   reencodeArgs,
   toConcatLine,
 } = require('./media-utils');
@@ -58,7 +58,7 @@ let mergeInProgress = false;
 /** 转场识别子进程（同一时间只允许一个） */
 let sceneProcess = null;
 /** 已识别出的转场（按视频路径缓存，换片即失效） */
-let sceneCache = { path: '', scenes: [] };
+let sceneCache = { path: '', scores: [] };
 /** @type {MpvClient|null} */
 let mpvClient = null;
 /** mpv 是否已就绪（进程已启动且 IPC 已连接） */
@@ -952,7 +952,7 @@ function registerIpc() {
       await mpvClient.send(['loadfile', filePath, 'replace']);
       logInfo('[video] open', filePath);
       // 换片：作废转场缓存，并停掉可能还在跑的识别
-      sceneCache = { path: '', scenes: [] };
+      sceneCache = { path: '', scores: [] };
       if (sceneProcess) {
         killChild(sceneProcess);
         sceneProcess = null;
@@ -1206,30 +1206,22 @@ function registerIpc() {
    * 用 ffmpeg 的 select+showinfo 找出画面转场点。
    * 结果只通过事件推给渲染进程画成"浮标"，不落盘、不写标记。
    */
-  ipcMain.handle('detect-scenes', async (event, opts) => {
+  ipcMain.handle('detect-scenes', async () => {
     if (!currentVideoPath) return { ok: false, error: '请先打开视频' };
     if (sceneProcess) return { ok: false, error: '正在识别中，请稍候' };
     if (!fs.existsSync(currentVideoPath)) {
       return { ok: false, error: '视频文件已不存在' };
     }
 
-    // 同一部片子上次已经识别过，直接复用
-    if (sceneCache.path === currentVideoPath && sceneCache.scenes.length) {
-      emitPlayerEvent({
-        type: 'scene-detected',
-        scenes: sceneCache.scenes,
-        cached: true,
-      });
+    // 同一部片子扫过一次就直接复用：阈值在渲染进程实时过滤，不需要重扫
+    if (sceneCache.path === currentVideoPath && sceneCache.scores.length) {
+      emitPlayerEvent({ type: 'scene-detected', scores: sceneCache.scores, cached: true });
       return { ok: true, cached: true };
     }
 
-    const raw = Number(opts && opts.threshold);
-    const threshold = Number.isFinite(raw)
-      ? Math.min(0.95, Math.max(0.05, raw))
-      : SCENE_THRESHOLD;
-
-    // 逗号是 filtergraph 的参数分隔符，函数参数里的逗号必须转义
-    const filter = `select='gt(scene\\,${threshold})',showinfo`;
+    // 一次扫描把所有帧的 scene 分数取回来（select 全放行 + 打印 metadata），
+    // 阈值调整在渲染进程本地过滤，不用重跑 ffmpeg。
+    const filter = "select='gte(scene\\,0)',metadata=print:file=-";
     const args = [
       '-hide_banner',
       '-nostdin',
@@ -1240,14 +1232,14 @@ function registerIpc() {
       '-',
     ];
 
-    logInfo('[scenes] start', currentVideoPath, 'threshold', threshold);
-    emitPlayerEvent({ type: 'scene-start', threshold });
+    logInfo('[scenes] start', currentVideoPath, 'floor', SCENE_SCORE_FLOOR);
+    emitPlayerEvent({ type: 'scene-start', floor: SCENE_SCORE_FLOOR });
 
     let proc;
     try {
       proc = spawn(resolveBin('ffmpeg.exe'), args, {
         windowsHide: true,
-        stdio: ['ignore', 'ignore', 'pipe'],
+        stdio: ['ignore', 'pipe', 'pipe'],
       });
     } catch (err) {
       emitPlayerEvent({ type: 'scene-error', message: '无法启动 ffmpeg：' + err.message });
@@ -1255,36 +1247,49 @@ function registerIpc() {
     }
     sceneProcess = proc;
 
+    const floor = SCENE_SCORE_FLOOR;
+    let scores = [];
     let buffer = '';
-    let found = [];
-    let lastEmit = 0;
     let scannedTo = 0;
+    let lastEmit = 0;
     const startedAt = Date.now();
 
-    proc.stderr.setEncoding('utf8');
-    proc.stderr.on('data', (chunk) => {
-      buffer += chunk;
-      // showinfo 每行以 \n 结束；只保留最后一段不完整的行
-      const lines = buffer.split('\n');
+    // 分数走 stdout（metadata=print:file=-），ffmpeg 自身的错误走 stderr
+    proc.stdout.setEncoding('utf8');
+    proc.stdout.on('data', (chunk) => {
+      const lines = (buffer + chunk).split('\n');
       buffer = lines.pop() || '';
-      for (const line of lines) {
-        const times = parseShowinfoTimes(line);
-        if (!times.length) continue;
-        for (const t of times) {
-          if (!found.includes(t)) found.push(t);
-        }
-        scannedTo = times[times.length - 1];
+
+      // 一个分数由两行组成（pts_time 行 + scene_score 行）。
+      // 若最后一条完整行是 pts_time 行，它的分数行可能还没到，留到下次再配。
+      let carry = '';
+      if (lines.length && lines[lines.length - 1].indexOf('pts_time:') !== -1) {
+        carry = lines.pop();
       }
+
+      const parsed = parseSceneScores(lines.join('\n'), { floor, max: 100000 - scores.length });
+      if (parsed.length) {
+        for (const p of parsed) scores.push(p);
+        scannedTo = parsed[parsed.length - 1].t;
+      }
+      if (carry) buffer = carry + '\n' + buffer;
+
       const now = Date.now();
       if (now - lastEmit > 300) {
         lastEmit = now;
         emitPlayerEvent({
           type: 'scene-progress',
-          found: found.length,
+          frames: scores.length,
           scannedTo,
           elapsedSec: Math.round((now - startedAt) / 1000),
         });
       }
+    });
+
+    let stderrTail = '';
+    proc.stderr.setEncoding('utf8');
+    proc.stderr.on('data', (chunk) => {
+      stderrTail = (stderrTail + chunk).slice(-2000);
     });
 
     proc.once('error', (err) => {
@@ -1298,25 +1303,32 @@ function registerIpc() {
       const cancelled = signal === 'SIGTERM' || signal === 'SIGKILL' || quitting;
       if (cancelled) {
         logInfo('[scenes] cancelled');
-        emitPlayerEvent({ type: 'scene-cancelled', found: found.length });
+        emitPlayerEvent({ type: 'scene-cancelled', frames: scores.length });
         return;
       }
       if (code !== 0) {
-        logError('[scenes] ffmpeg exit', code);
+        logError('[scenes] ffmpeg exit', code, stderrTail.slice(-400));
+        const tail = stderrTail.trim().split('\n').pop() || '';
         emitPlayerEvent({
           type: 'scene-error',
-          message: `识别失败（ffmpeg 退出码 ${code}）`,
+          message: `识别失败（ffmpeg 退出码 ${code}）${tail ? '：' + tail : ''}`,
         });
         return;
       }
-      found.sort((a, b) => a - b);
-      sceneCache = { path: currentVideoPath, scenes: found };
-      logInfo('[scenes] done', found.length, 'cuts in',
+
+      // 末尾残留的半行/半组也尝试收一下
+      if (buffer.trim()) {
+        const tail = parseSceneScores(buffer, { floor });
+        for (const p of tail) scores.push(p);
+      }
+      scores.sort((a, b) => a.t - b.t);
+      sceneCache = { path: currentVideoPath, scores };
+      logInfo('[scenes] done', scores.length, 'frames >= floor in',
         Math.round((Date.now() - startedAt) / 1000) + 's');
-      emitPlayerEvent({ type: 'scene-detected', scenes: found, threshold });
+      emitPlayerEvent({ type: 'scene-detected', scores });
     });
 
-    return { ok: true, threshold };
+    return { ok: true };
   });
 
   ipcMain.handle('cancel-scenes', () => {

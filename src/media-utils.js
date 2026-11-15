@@ -150,35 +150,58 @@ function toConcatLine(filePath) {
 /** 转场识别的默认灵敏度（0–1，越小越敏感） */
 const SCENE_THRESHOLD = 0.4;
 
-/** 单次识别最多保留多少个转场点，防止极端素材把内存撑爆 */
-const SCENE_MAX = 5000;
+/** 收集扫描结果时保留的最低分数：低于它的帧不占内存，阈值也就调不到更低 */
+const SCENE_SCORE_FLOOR = 0.01;
+
+/** 单次收集最多保留多少帧的分数，防止极端素材把内存撑爆 */
+const SCENE_MAX = 100000;
 
 /**
- * 从 `ffmpeg -vf "select='gt(scene,T)',showinfo"` 的 stderr 里抽出转场时间点。
+ * 解析 `metadata=print` 的场景分输出。
  *
- * showinfo 每个被选中的帧打印一行，形如：
- *   [Parsed_showinfo_2 @ 0x...] n:   0 pts: 123456 pts_time:5.164 ...
+ * 一次扫描把所有帧的 scene 分数都收回来，之后调阈值只需在本地过滤，
+ * 不用重新跑 ffmpeg（37 分钟的片子重扫要两三分钟，滑一次滑块就等一次是不可接受的）。
  *
- * 输出可能有重复（分段喂入时同一行被切两次），这里去重并升序排列。
+ * 输入形如（两行一组）：
+ *   frame:75   pts:38400   pts_time:3
+ *   lavfi.scene_score=0.718990
  *
- * @param {string} text stderr 片段
- * @param {number} [max] 最多返回多少个
- * @returns {number[]} 秒，升序
+ * @param {string} text
+ * @param {{floor?: number, max?: number}} [opts]
+ * @returns {Array<{t: number, score: number}>} 按时间升序
  */
-function parseShowinfoTimes(text, max) {
-  const limit = Number.isFinite(Number(max)) && Number(max) > 0
-    ? Math.floor(Number(max))
+function parseSceneScores(text, opts) {
+  const o = opts || {};
+  const floor = Number.isFinite(Number(o.floor)) ? Number(o.floor) : SCENE_SCORE_FLOOR;
+  const max = Number.isFinite(Number(o.max)) && Number(o.max) > 0
+    ? Math.floor(Number(o.max))
     : SCENE_MAX;
-  const re = /Parsed_showinfo[^\n]*?pts_time:\s*(-?\d+(?:\.\d+)?)/g;
-  const seen = new Set();
-  let m;
-  while ((m = re.exec(String(text || ''))) !== null) {
-    const t = Number(m[1]);
-    if (!Number.isFinite(t) || t < 0) continue;
-    seen.add(Math.round(t * 1000) / 1000);
-    if (seen.size >= limit) break;
+
+  const out = [];
+  const lines = String(text || '').split('\n');
+  let pendingTime = null;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.indexOf('pts_time:') !== -1) {
+      const m = /pts_time:\s*(-?\d+(?:\.\d+)?)/.exec(line);
+      if (m) {
+        const t = Number(m[1]);
+        pendingTime = Number.isFinite(t) && t >= 0 ? t : null;
+      }
+      continue;
+    }
+    const s = /lavfi\.scene_score=\s*(-?\d+(?:\.\d+)?)/.exec(line);
+    if (s && pendingTime !== null) {
+      const score = Number(s[1]);
+      if (Number.isFinite(score) && score >= floor) {
+        out.push({ t: Math.round(pendingTime * 1000) / 1000, score });
+        if (out.length >= max) break;
+      }
+      pendingTime = null;
+    }
   }
-  return Array.from(seen).sort((a, b) => a - b);
+  return out;
 }
 
 module.exports = {
@@ -187,6 +210,7 @@ module.exports = {
   MEDIA_EXTENSIONS,
   MIN_VIDEO_BPS,
   SCENE_MAX,
+  SCENE_SCORE_FLOOR,
   SCENE_THRESHOLD,
   SUBTITLE_EXTENSIONS,
   estimateVideoBitrate,
@@ -194,7 +218,7 @@ module.exports = {
   findMediaArg,
   isMediaPath,
   isSubtitlePath,
-  parseShowinfoTimes,
+  parseSceneScores,
   reencodeArgs,
   toConcatLine,
 };

@@ -72,9 +72,55 @@ var Scenes = (function () {
     return null;
   }
 
+  /**
+   * 按阈值筛出命中帧的时间点。
+   *
+   * 主进程一次扫描返回全部帧的分数，调阈值只在这里过滤，
+   * 所以滑动阈值是即时的，不需要重新跑 ffmpeg。
+   *
+   * @param {Array<{t:number, score:number}>} scores
+   * @param {number} threshold 0–1
+   * @returns {number[]} 升序时间
+   */
+  function filterByThreshold(scores, threshold) {
+    var list = Array.isArray(scores) ? scores : [];
+    var th = Number(threshold);
+    if (!isFinite(th)) return [];
+    var out = [];
+    for (var i = 0; i < list.length; i++) {
+      var s = list[i];
+      if (!s || !isFinite(s.t) || !isFinite(s.score)) continue;
+      if (s.score >= th) out.push(s.t);
+    }
+    out.sort(function (a, b) { return a - b; });
+    return out;
+  }
+
+  /**
+   * 找出能让至少 n 个点通过的阈值（用于"没命中时自动降到有结果的档位"）。
+   *
+   * @param {Array<{t:number, score:number}>} scores
+   * @param {number} n 期望命中的数量
+   * @returns {number|null} 建议阈值；样本不足时返回 null
+   */
+  function suggestThreshold(scores, n) {
+    var list = Array.isArray(scores) ? scores : [];
+    var want = Number(n) > 0 ? Math.floor(Number(n)) : 1;
+    if (list.length < want) return null;
+    var sorted = list
+      .filter(function (s) { return s && isFinite(s.score); })
+      .map(function (s) { return s.score; })
+      .sort(function (a, b) { return b - a; });
+    if (sorted.length < want) return null;
+    // 第 want 高的分数就是能让 want 个点通过的最低阈值
+    return Math.round(sorted[want - 1] * 100) / 100;
+  }
+
   return {
     MIN_GAP_PX: MIN_GAP_PX,
+    filterByThreshold: filterByThreshold,
     nearest: nearest,
+    suggestThreshold: suggestThreshold,
     thin: thin,
   };
 })();

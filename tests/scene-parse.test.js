@@ -3,73 +3,84 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { parseShowinfoTimes } = require('../src/media-utils');
+const { parseSceneScores } = require('../src/media-utils');
 
-/** 真实 ffmpeg 输出的一行（节选，字段与实机一致） */
-const LINE = (n, t) =>
-  `[Parsed_showinfo_1 @ 0000022cad145980] n:   ${n} pts:  76800 pts_time:${t}       ` +
-  `duration:    512 duration_time:0.04    fmt:yuv420p cl:left sar:1/1 s:640x360 i:P iskey:1`;
+/** 真实 metadata=print 输出的一个块（两行） */
+const BLOCK = (frame, t, score) =>
+  `frame:${frame}    pts:${frame * 512}    pts_time:${t}\nlavfi.scene_score=${score}`;
 
-test('parseShowinfoTimes：从真实格式的 showinfo 行里取出时间', () => {
-  const text = [LINE(0, '3'), LINE(1, '6')].join('\n');
-  assert.deepEqual(parseShowinfoTimes(text), [3, 6]);
+test('parseSceneScores：按块解析出时间与分数', () => {
+  // 注意：第一帧 score 为 0 时会被默认 floor(0.01) 丢掉，这里用 0.05 保证三条都保留
+  const text = [BLOCK(0, '0', '0.050000'), BLOCK(75, '3', '0.718990'), BLOCK(150, '6', '0.743877')]
+    .join('\n');
+  const got = parseSceneScores(text);
+  assert.equal(got.length, 3);
+  assert.deepEqual(got.map((x) => x.t), [0, 3, 6]);
+  assert.equal(got[1].score, 0.71899);
+  assert.ok(Math.abs(got[2].score - 0.743877) < 1e-9);
 });
 
-test('parseShowinfoTimes：小数与乱序输入都能处理，结果升序', () => {
-  const text = [LINE(0, '6.5'), LINE(1, '1.25'), LINE(2, '3')].join('\n');
-  assert.deepEqual(parseShowinfoTimes(text), [1.25, 3, 6.5]);
+test('parseSceneScores：score 恰好等于 0 的帧被 floor 丢弃', () => {
+  const got = parseSceneScores(BLOCK(0, '0', '0.000000') + '\n' + BLOCK(75, '3', '0.7'));
+  assert.equal(got.length, 1);
+  assert.equal(got[0].t, 3);
 });
 
-test('parseShowinfoTimes：重复行去重', () => {
-  const text = [LINE(0, '3'), LINE(0, '3'), LINE(1, '6')].join('\n');
-  assert.deepEqual(parseShowinfoTimes(text), [3, 6]);
+test('parseSceneScores：低于 floor 的帧被丢弃（省内存）', () => {
+  const text = [BLOCK(0, '0', '0.001000'), BLOCK(10, '0.4', '0.200000')].join('\n');
+  assert.equal(parseSceneScores(text, { floor: 0.01 }).length, 1);
+  assert.equal(parseSceneScores(text, { floor: 0.5 }).length, 0);
+  // 默认 floor 是 0.01，所以 0.001 会被丢掉
+  assert.equal(parseSceneScores(text).length, 1);
 });
 
-test('parseShowinfoTimes：忽略非 showinfo 行与负值', () => {
+test('parseSceneScores：max 限制条数', () => {
+  const text = Array.from({ length: 10 }, (_, i) => BLOCK(i, String(i), '0.5')).join('\n');
+  assert.equal(parseSceneScores(text, { max: 3 }).length, 3);
+});
+
+test('parseSceneScores：没有配套时间行的分数被忽略', () => {
+  const text = 'lavfi.scene_score=0.9\n' + BLOCK(1, '1', '0.5');
+  const got = parseSceneScores(text);
+  assert.equal(got.length, 1);
+  assert.equal(got[0].t, 1);
+});
+
+test('parseSceneScores：忽略无关行与负时间', () => {
   const text = [
-    'ffmpeg version 9.0.2 Copyright (c) 2000-2026',
-    '[in#0 @ 0x1] Duration: 00:00:09.00',
-    LINE(0, '3'),
-    '[Parsed_showinfo_1 @ 0x2] n:   1 pts: -10 pts_time:-0.4',
-    'frame=   10 fps=0.0',
+    'ffmpeg version 9.0.2',
+    'frame:0 pts:0 pts_time:-1',
+    'lavfi.scene_score=0.9',
+    BLOCK(5, '2', '0.3'),
   ].join('\n');
-  assert.deepEqual(parseShowinfoTimes(text), [3]);
+  const got = parseSceneScores(text);
+  assert.equal(got.length, 1);
+  assert.equal(got[0].t, 2);
 });
 
-test('parseShowinfoTimes：空输入与非法输入返回空数组', () => {
-  assert.deepEqual(parseShowinfoTimes(''), []);
-  assert.deepEqual(parseShowinfoTimes(null), []);
-  assert.deepEqual(parseShowinfoTimes(undefined), []);
-  assert.deepEqual(parseShowinfoTimes(123), []);
+test('parseSceneScores：空输入与非法输入返回空数组', () => {
+  assert.deepEqual(parseSceneScores(''), []);
+  assert.deepEqual(parseSceneScores(null), []);
+  assert.deepEqual(parseSceneScores(undefined), []);
+  assert.deepEqual(parseSceneScores(42), []);
 });
 
-test('parseShowinfoTimes：max 限制条数', () => {
-  const text = Array.from({ length: 20 }, (_, i) => LINE(i, String(i + 1))).join('\n');
-  const got = parseShowinfoTimes(text, 5);
-  assert.equal(got.length, 5);
-  // 因为是在解析过程中 break，保留的是先出现的 5 个
-  assert.deepEqual(got, [1, 2, 3, 4, 5]);
+test('parseSceneScores：时间保留三位毫秒', () => {
+  const got = parseSceneScores(BLOCK(1, '12.345678', '0.5'));
+  assert.equal(got[0].t, 12.346);
 });
 
-test('parseShowinfoTimes：按行切分的流式喂入能拼出完整结果', () => {
-  const lines = [LINE(0, '3'), LINE(1, '6'), LINE(2, '9')];
-  const text = lines.join('\n');
-  // 主进程按 \n 切行后再喂给解析器，这里模拟同样的切法
-  const boundary = text.indexOf('\n') + 1;
-  const a = parseShowinfoTimes(text.slice(0, boundary));
-  const b = parseShowinfoTimes(text.slice(boundary));
-  const merged = Array.from(new Set([...a, ...b])).sort((x, y) => x - y);
-  assert.deepEqual(merged, [3, 6, 9]);
+test('parseSceneScores：分成两段解析再合并，不会漏也不会重', () => {
+  const a = BLOCK(0, '1', '0.2');
+  const b = BLOCK(1, '2', '0.3');
+  const part1 = parseSceneScores(a);
+  const part2 = parseSceneScores(b);
+  const merged = part1.concat(part2).map((x) => x.t);
+  assert.deepEqual(merged, [1, 2]);
 });
 
-test('parseShowinfoTimes：半行（缺结尾）不会被误解析——调用方负责按行缓冲', () => {
-  const full = LINE(0, '3');
-  const half = full.slice(0, full.indexOf('pts_time:') + 5);
-  assert.deepEqual(parseShowinfoTimes(half), [], '不完整的行不应产生数据');
-  assert.deepEqual(parseShowinfoTimes(full), [3], '完整的行才解析');
-});
-
-test('parseShowinfoTimes：毫秒精度保留三位', () => {
-  const text = LINE(0, '12.345678');
-  assert.deepEqual(parseShowinfoTimes(text), [12.346]);
+test('parseSceneScores：只在 pts_time 行之后紧跟的分数行才配对', () => {
+  // 分数行出现在时间行之前，不应配对
+  const text = 'lavfi.scene_score=0.8\nframe:0 pts:0 pts_time:4\n';
+  assert.deepEqual(parseSceneScores(text), []);
 });

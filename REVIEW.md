@@ -552,3 +552,111 @@ if (px - lastPx < gap) continue;        // 离上一个保留点太近就跳过
   非法输入、前后跳转、边界返回 null、原地不跳
 
 总数 **105 → 124**，全过；DOM id 63 个引用无缺失；语法 0 失败。
+
+## 二十、v1.6.0：转场识别改为"扫一次、阈值随时调"
+
+### 真机反馈暴露的问题
+
+用户用 37 分钟、1080p 的行车记录仪街拍测试：
+
+- 扫描耗时 **2–3 分钟**
+- 结果 **"没有识别到转场"**
+
+两个问题叠在一起，把一个"能用的功能"变成"没法用的功能"：
+阈值固定 0.4，而连续运动的素材帧间差异普遍很小；更要命的是**调阈值 = 重扫 = 再等两三分钟**，
+用户根本没有尝试的成本空间。
+
+### 改法：把阈值从 ffmpeg 搬到渲染进程
+
+旧实现让 ffmpeg 用 `select='gt(scene,0.4)'` 只放行超阈值的帧，所以阈值一变就得重扫。
+
+新实现让 ffmpeg **全放行**，把每帧的分数都打出来：
+
+```
+-filter:v "select='gte(scene\,0)',metadata=print:file=-"
+```
+
+输出走 stdout，两行一组：
+
+```
+frame:75    pts:38400    pts_time:3
+lavfi.scene_score=0.718990
+```
+
+`parseSceneScores()` 收成 `[{t, score}]`，之后阈值过滤在渲染进程做：
+
+```js
+function visibleSceneTimes() {
+  return Scenes.filterByThreshold(state.scenes, state.threshold);
+}
+```
+
+拖滑块就是一次数组过滤 + 重画浮标，**毫秒级**。ffmpeg 只跑一次。
+
+### 流式解析的配对坑
+
+一个分数由两行组成，而 stdout 按块到达，可能正好断在两行之间。
+如果只按行缓冲，会出现"时间行已解析、分数行还没到"的状况，那一条就丢了。
+
+处理方式是：**若最后一条完整行是 `pts_time` 行，把它留到下一块**：
+
+```js
+let carry = '';
+if (lines.length && lines[lines.length - 1].indexOf('pts_time:') !== -1) {
+  carry = lines.pop();
+}
+// ...解析剩余行...
+if (carry) buffer = carry + '\n' + buffer;
+```
+
+### 收集下限与内存
+
+`select='gte(scene,0)'` 会放行全部帧，但 `parseSceneScores` 有 `SCENE_SCORE_FLOOR = 0.01`：
+低于它的帧不占内存。代价是滑块最低只能调到 0.02 —— 再低就需要重新扫描，面板上的
+"重新扫描"按钮就是为这个场景准备的。
+
+上限 `SCENE_MAX = 100000` 帧，防止极端素材撑爆内存。
+
+### 零命中自动降档
+
+扫描完如果当前阈值一处都没命中，`afterSceneDetected()` 会：
+
+```js
+var suggested = Scenes.suggestThreshold(state.scenes, 8);  // 第 8 高的分数
+state.threshold = clamp(suggested, 0.02, 0.9);
+```
+
+`suggestThreshold` 取"分数降序第 N 个"，正好等于"让 N 个点通过的最低阈值"。
+状态栏会说明"阈值 0.40 一处都没命中，已自动降到 0.18（命中 12 处）"，
+用户不需要理解 scene 分数是什么，也能立刻看到结果。
+
+### UI
+
+灵敏度面板浮在控制条上方（`position:absolute` + `#controlbar { position: relative }`），
+不挤压原有布局。内容：滑块 + 当前数值 + "收集 N 帧，命中 M 处" + 重新扫描 / 关闭。
+
+零命中时那行提示会变青色（`.hint.set`）并写"往左拖降低灵敏度门槛"。
+
+### 实测
+
+用合成素材（3 段不同图案硬切在 3s / 6s）跑真实命令：
+
+```
+收集帧数: 4
+阈值 0.90 -> 命中 0 处
+阈值 0.70 -> 命中 2 处 [3,6]
+阈值 0.40 -> 命中 2 处 [3,6]
+建议阈值(要8个): null      // 样本只有 4 帧，不够 8 个
+```
+
+0.90 的零命中复现了用户遇到的场景，降到 0.70 立刻出结果 —— 正是这次改动要达到的效果。
+
+### 测试
+
+总数 **125 → 132**：
+
+- `scene-parse.test.js` 重写为 `parseSceneScores` 的 10 个用例（块解析、floor 丢弃、max 上限、
+  缺时间行忽略、负时间忽略、空输入、毫秒精度、分段合并、顺序颠倒不配对）
+- `scenes.test.js` 增补 `filterByThreshold`（4 个）与 `suggestThreshold`（3 个），
+  含一条自洽性断言：建议阈值下必须真的能命中足够数量
+

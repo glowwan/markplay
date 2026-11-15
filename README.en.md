@@ -77,7 +77,10 @@ The control bar sits below the video rather than floating over it — the video 
 - **Backup** — `Ctrl+S` copies the marker file to a timestamped backup; the 10 most recent are kept per video.
 - **Explicit ranges** — `[` sets in, `]` sets out. Rename by double-click, click to jump to in-point, drag either end of the range bar to adjust in/out, or drag the bar body to shift the whole range (width preserved, frame snapping applies).
 - **Generate ranges** — **A/B pairing** (each A → nearest following B) or **adjacent pairing** (1-2, 3-4…, any marker type).
-- **Scene-cut hints** — the "转场" button runs ffmpeg scene detection and draws orange bubbles above the timeline. **Hint only, nothing is marked automatically**; click a bubble to jump there, or use `Shift+←/→`. Re-click to cancel a running scan; results are cached per video and thinned by pixel spacing so dense cuts do not merge into a smear.
+- **Scene-cut hints** — the "转场" button scans frame-to-frame differences and draws orange bubbles above the timeline. **Hint only, nothing is marked automatically**; click a bubble to jump there, or use `Shift+←/→`.
+  - **Adjustable sensitivity**: one scan collects a score for every frame, then the slider filters instantly — **no rescan** (a full rescan of a long video takes minutes).
+  - If nothing matches at the current threshold, the app automatically steps down to a level that does.
+  - Results are cached per video and thinned by pixel spacing so dense cuts do not merge into a smear.
 - **Timeline zoom** — `Ctrl+wheel` / `Ctrl+=` `Ctrl+-` to zoom (works over the video too), `Shift+wheel` to pan, `Ctrl+0` to fit. The playhead auto-follows when it leaves the view.
 - **Large lists stay smooth** — marker and range lists are virtualized; thousands of entries won't rebuild the whole DOM.
 
