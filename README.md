@@ -52,6 +52,8 @@ MarkPlay 把这三步做成了一套连贯的手势和快捷键：
 
 ## 界面
 
+> 想补演示动图？拍什么、怎么录、怎么压到 5MB 以内，见 [docs/images/README.md](docs/images/README.md)。
+
 侧栏从上到下依次是：**标记** → **区间** → **剪辑** → **导出**。
 
 播放控制条在视频下方（因为视频画面是 mpv 的原生子窗口，HTML 控件无法叠加在画面上，详见[已知限制](#已知限制)）。
@@ -229,7 +231,7 @@ video-marker-player/
 │   ├── LIBMPV-MIGRATION.md# libmpv 渲染重构方案
 │   ├── RELEASE-NOTES-v1.2.1.md # Release 说明草稿
 │   ├── PROMO.md           # 推广草稿（V2EX / 少数派 / B站）
-│   └── images/            # 可选：放演示动图（见该目录 README）
+│   └── images/            # 演示动图 / 截图（做法见该目录 README）
 ├── src/
 │   ├── main.js            # 主进程：窗口、mpv/ffmpeg 子进程、IPC、菜单、单实例
 │   ├── config.js          # 前后端共享配置

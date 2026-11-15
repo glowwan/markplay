@@ -43,6 +43,7 @@
   "productName": "MarkPlay",
   "scripts": {
     "check:dom": "node tools/check-dom.js",
+    "gif": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/make-gif.ps1",
     "check:templates": "node tools/check-templates.js",
     "dist": "electron-builder --win --x64",
     "fetch-bin": "node tools/fetch-binaries.js",
