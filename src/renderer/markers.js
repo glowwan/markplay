@@ -446,7 +446,7 @@ var Markers = (function () {
     pushHistory();
     var r = {
       id: nextRangeId(),
-      name: (name && String(name).trim()) || ('区间 ' + (ranges.length + 1)),
+      name: (name && String(name).trim()) || I18n.t('ui.rangeName', { n: ranges.length + 1 }),
       in: a,
       out: b,
       color: rangeColor(ranges.length),
@@ -587,7 +587,7 @@ var Markers = (function () {
     pairs.forEach(function (pair, idx) {
       ranges.push({
         id: nextRangeId(),
-        name: '区间 ' + (base + idx + 1),
+        name: I18n.t('ui.rangeName', { n: base + idx + 1 }),
         in: pair[0],
         out: pair[1],
         color: rangeColor(base + idx),
@@ -620,7 +620,7 @@ var Markers = (function () {
       if (dup) continue;
       ranges.push({
         id: nextRangeId(),
-        name: '区间 ' + (ranges.length + 1),
+        name: I18n.t('ui.rangeName', { n: ranges.length + 1 }),
         in: a.time,
         out: b.time,
         color: rangeColor(ranges.length),
@@ -820,7 +820,7 @@ var Markers = (function () {
     var del = document.createElement('button');
     del.className = 'del';
     del.textContent = '✕';
-    del.title = '删除该标记';
+    del.title = I18n.t('ui.deleteMarkerTitle');
     del.addEventListener('click', function (e) {
       e.stopPropagation();
       remove(m.id);
@@ -918,7 +918,7 @@ var Markers = (function () {
     var name = document.createElement('span');
     name.className = 'range-name';
     name.textContent = r.name;
-    name.title = '双击重命名';
+    name.title = I18n.t('ui.renameHint');
     name.addEventListener('dblclick', function (e) {
       e.stopPropagation();
       startRangeRename(li, r);
@@ -935,7 +935,7 @@ var Markers = (function () {
     var del = document.createElement('button');
     del.className = 'del';
     del.textContent = '✕';
-    del.title = '删除该区间';
+    del.title = I18n.t('ui.deleteRangeTitle');
     del.addEventListener('click', function (e) {
       e.stopPropagation();
       removeRange(r.id);
@@ -1174,7 +1174,7 @@ var Markers = (function () {
         seenRanges[rid] = true;
         ranges.push({
           id: rid,
-          name: String(raw.name || ('区间 ' + (ranges.length + 1))),
+          name: String(raw.name || I18n.t('ui.rangeName', { n: ranges.length + 1 })),
           in: Math.max(0, a),
           out: Math.max(0, b),
           color: raw.color || rangeColor(ranges.length),

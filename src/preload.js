@@ -6,6 +6,30 @@
  */
 const { contextBridge, ipcRenderer } = require('electron');
 const config = require('./config');
+const { createTranslator, normalize } = require('./i18n');
+const dictZh = require('./locales/zh-CN');
+const dictEn = require('./locales/en-US');
+
+const DICTS = { 'zh-CN': dictZh, 'en-US': dictEn };
+
+/**
+ * 渲染进程侧的翻译函数。
+ *
+ * 语言由主进程通过同步 IPC 直接注入到这里，所以页面首帧就是正确语言，
+ * 不会出现"先闪一下中文再变英文"。切换语言时主进程发 language-changed，
+ * 渲染进程改用 window.markplay.setLanguage() 替换。
+ */
+let currentLang = 'zh-CN';
+try {
+  // 同步取值：preload 在页面脚本之前执行，这一步开销极小（读内存里的变量）
+  const injected = ipcRenderer.sendSync('get-language');
+  currentLang = normalize(injected);
+} catch {
+  // sendSync 不可用（理论上不会），退回中文，不影响启动
+  currentLang = 'zh-CN';
+}
+
+let translator = createTranslator(currentLang, DICTS[currentLang], dictZh);
 
 contextBridge.exposeInMainWorld('markplay', {
   /**
@@ -13,6 +37,38 @@ contextBridge.exposeInMainWorld('markplay', {
    * 注意：config.js 是纯数据模块，直接暴露整个对象是安全的。
    */
   config,
+
+  /**
+   * 当前界面语言。
+   * @returns {'zh-CN'|'en-US'}
+   */
+  getLanguage: () => currentLang,
+
+  /**
+   * 取一条翻译。渲染进程里可以直接用 window.markplay.t('ui.markers')。
+   * @param {string} key 点号路径
+   * @param {object} [params] 插值参数
+   * @returns {string}
+   */
+  t: (key, params) => translator(key, params),
+
+  /**
+   * 切换语言（仅渲染进程内部使用；真正的切换由主进程发起的 language-changed 驱动）。
+   * @param {'zh-CN'|'en-US'} lang
+   */
+  setLanguage: (lang) => {
+    const next = normalize(lang);
+    if (next === currentLang) return;
+    currentLang = next;
+    translator = createTranslator(currentLang, DICTS[currentLang], dictZh);
+  },
+
+  /**
+   * 请求主进程切换语言（设置落盘 + 菜单重建 + 通知渲染进程重刷）。
+   * @param {'zh-CN'|'en-US'} lang
+   * @returns {Promise<{ok: boolean, language: string}>}
+   */
+  switchLanguage: (lang) => ipcRenderer.invoke('set-language', lang),
 
   /**
    * 发送一条原始 mpv 命令数组，如 ['seek', 5, 'relative']。

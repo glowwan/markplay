@@ -15,7 +15,7 @@
   }
   if (!window.markplay) {
     document.addEventListener('DOMContentLoaded', function () {
-      statusEarly('错误：主进程接口未加载（window.markplay 缺失）。请尝试重装，或把此信息发给开发者。');
+      statusEarly(I18n.t('errors.noBridge'));
     });
     return; // 后续接线全部依赖 markplay，直接中止
   }
@@ -79,7 +79,7 @@
     if (kind === 'error') {
       statusTimer = setTimeout(function () {
         el.classList.remove('err');
-        el.textContent = '就绪';
+        el.textContent = I18n.t('ui.ready');
       }, 6000);
     }
   }
@@ -112,14 +112,14 @@
     var rev = $('btn-speed-rev');
     if (fwd) fwd.classList.toggle('active', state.speedMode === 'fwd2x');
     if (rev) rev.classList.toggle('active', state.speedMode === 'rev2x');
-    if (state.speedMode === 'fwd2x') status('2 倍速播放中（再按 X / 点左键恢复）');
-    else if (state.speedMode === 'rev2x') status('2 倍速倒放中（再按 Z / 点右键恢复）');
+    if (state.speedMode === 'fwd2x') status(I18n.t('status.playing2x'));
+    else if (state.speedMode === 'rev2x') status(I18n.t('status.reversing2x'));
   }
 
   function toggleSpeed(mode) {
     if (!state.videoPath) return;
     window.markplay.toggleSpeedMode(mode).catch(function (err) {
-      status('切换速度失败：' + (err && err.message ? err.message : err), 'error');
+      status(I18n.t('status.speedFailed', { msg: err && err.message ? err.message : err }), 'error');
     });
   }
 
@@ -140,11 +140,11 @@
     var el = $('range-pending');
     if (!el) return;
     if (state.pendingIn == null) {
-      el.textContent = '入点：未设置';
+      el.textContent = I18n.t('ui.pendingInNone');
       el.classList.remove('set');
       return;
     }
-    el.textContent = '入点：' + Exporter.tc(state.pendingIn) + '（再按 ] 设出点）';
+    el.textContent = I18n.t('ui.pendingInSet', { tc: Exporter.tc(state.pendingIn) });
     el.classList.add('set');
   }
 
@@ -152,32 +152,36 @@
     if (!requireVideo()) return;
     state.pendingIn = state.currentTime;
     updateRangeHint();
-    status('区间入点 @ ' + Exporter.tc(state.pendingIn) + '，播到出点后按 ]', 'ok');
+    status(I18n.t('status.rangeInSet', { tc: Exporter.tc(state.pendingIn) }), 'ok');
   }
 
   function markRangeOut() {
     if (!requireVideo()) return;
     if (state.pendingIn == null) {
-      status('先设入点：按 [ 或点"设入点"', 'error');
+      status(I18n.t('status.rangeNeedIn'), 'error');
       return;
     }
     var a = state.pendingIn;
     var b = state.currentTime;
     if (!(b > a)) {
-      status('出点必须晚于入点（入点 ' + Exporter.tc(a) + '）', 'error');
+      status(I18n.t('status.rangeOutBeforeIn', { tc: Exporter.tc(a) }), 'error');
       return;
     }
     var r = Markers.addRange(a, b);
     if (!r) {
-      status('创建区间失败：时间范围无效', 'error');
+      status(I18n.t('status.rangeCreateFailed'), 'error');
       return;
     }
     state.pendingIn = null;
     updateRangeHint();
     Exporter.refreshClipSelectors();
     selectRange(r.id);
-    status('已创建区间：' + r.name + '  ' + Exporter.tc(r.in) + ' → ' + Exporter.tc(r.out), 'ok');
-    UI.toast('已创建区间：' + r.name, { kind: 'success' });
+    status(I18n.t('status.rangeCreated', {
+      name: r.name, from: Exporter.tc(r.in), to: Exporter.tc(r.out),
+    }), 'ok');
+    UI.toast(I18n.t('status.rangeCreated', {
+      name: r.name, from: Exporter.tc(r.in), to: Exporter.tc(r.out),
+    }), { kind: 'success' });
   }
 
   /** 把老的 A/B 标记批量迁移成区间 */
@@ -185,11 +189,11 @@
     if (!requireVideo()) return;
     var n = Markers.addRangesFromMarkers();
     if (!n) {
-      status('没有可配对的 A/B 标记（需要 A 后面跟一个 B）', 'error');
+      status(I18n.t('status.rangeNoAB'), 'error');
       return;
     }
     Exporter.refreshClipSelectors();
-    UI.toast('已从 A/B 标记生成 ' + n + ' 个区间', { kind: 'success' });
+    UI.toast(I18n.t('status.rangeFromABDone', { n }), { kind: 'success' });
   }
 
   /** 任意类型：按时间相邻两个标记生成区间（1-2、3-4…） */
@@ -197,11 +201,11 @@
     if (!requireVideo()) return;
     var n = Markers.addRangesFromAdjacentMarkers();
     if (!n) {
-      status('没有可配对的相邻标记（至少 2 个，且不能与已有区间完全重复）', 'error');
+      status(I18n.t('status.rangeNoAdjacent'), 'error');
       return;
     }
     Exporter.refreshClipSelectors();
-    UI.toast('已按相邻标记生成 ' + n + ' 个区间', { kind: 'success' });
+    UI.toast(I18n.t('status.rangeAdjacentDone', { n }), { kind: 'success' });
   }
 
   // ---------- 批量重命名 ----------
@@ -231,14 +235,15 @@
       return scope === 'ALL' || m.kind === scope;
     });
     if (!targets.length) {
-      el.textContent = '预览：范围内没有标记';
+      el.textContent = I18n.t('ui.batchPreviewNoTarget');
       el.classList.remove('set');
       return;
     }
     var first = targets[0];
     var sample = Markers.composeBatchLabel(first.label, first.kind, 1, opts);
-    el.textContent = '预览：' + first.label + ' → ' + sample
-      + '（共 ' + targets.length + ' 条）';
+    el.textContent = I18n.t('ui.batchPreviewOne', {
+      from: first.label, to: sample, n: targets.length,
+    });
     el.classList.add('set');
   }
 
@@ -258,17 +263,17 @@
     if (!requireVideo()) return;
     var opts = readBatchForm();
     if (!opts.prefix && !opts.suffix && !opts.renumber) {
-      status('前缀、后缀、重新编号 至少填一项', 'error');
+      status(I18n.t('status.batchNeedField'), 'error');
       return;
     }
     var n = Markers.batchRename(opts);
     if (!n) {
-      status('没有标记被改动（可能名称本来就一样）', 'error');
+      status(I18n.t('status.batchNoChange'), 'error');
       return;
     }
     toggleBatchBox(false);
-    status('已重命名 ' + n + ' 条标记（Ctrl+Z 可撤销）', 'ok');
-    UI.toast('已重命名 ' + n + ' 条标记', { kind: 'success' });
+    status(I18n.t('status.batchDone', { n }), 'ok');
+    UI.toast(I18n.t('status.batchDone', { n }), { kind: 'success' });
   }
 
   // ---------- 标记文件备份（Ctrl+S） ----------
@@ -289,21 +294,24 @@
       .then(function () { return window.markplay.backupSidecar(sidecar); })
       .then(function (r) {
         if (!r || !r.ok) {
-          status('备份失败：' + ((r && r.error) || '未知错误'), 'error');
+          status(I18n.t('status.backupFailed', {
+            msg: (r && r.error) || I18n.t('common.unknown'),
+          }), 'error');
           return;
         }
         var name = basename(r.path);
-        var extra = r.removed > 0 ? '（已清理 ' + r.removed + ' 个旧备份）' : '';
-        status('已备份标记文件：' + name + extra, 'ok');
-        UI.toast('已备份：' + name + extra, {
+        var extra = r.removed > 0 ? I18n.t('status.backupCleaned', { n: r.removed }) : '';
+        status(I18n.t('status.backupDone', { name, extra }), 'ok');
+        UI.toast(I18n.t('status.backupDone', { name, extra }), {
           kind: 'success',
-          actionLabel: '在文件夹中显示',
+          actionLabel: I18n.t('ui.revealInFolder'),
           onAction: function () { window.markplay.showItemInFolder(r.path); },
         });
       })
       .catch(function (err) {
-        status('备份失败：' + (err && err.message ? err.message : String(err)), 'error');
-        UI.toast('备份失败：' + (err && err.message ? err.message : String(err)), { kind: 'error' });
+        var bmsg = err && err.message ? err.message : String(err);
+        status(I18n.t('status.backupFailed', { msg: bmsg }), 'error');
+        UI.toast(I18n.t('status.backupFailed', { msg: bmsg }), { kind: 'error' });
       })
       .then(function () { backingUp = false; });
   }
@@ -325,10 +333,10 @@
     if (state.looping && range) {
       var n = rangeIndex(range);
       btn.textContent = n ? ('A–B ' + n) : 'A–B';
-      btn.title = '正在循环：' + range.name + '（点击关闭；在剪辑面板换区间会自动切换）';
+      btn.title = I18n.t('ui.loopActiveTitle', { name: range.name });
     } else {
       btn.textContent = 'A–B';
-      btn.title = 'A–B 循环（L）：循环剪辑面板中选中的区间';
+      btn.title = I18n.t('ui.loopDesc');
     }
   }
 
@@ -340,7 +348,7 @@
       state.looping = false;
       loopRangeId = null;
       updateLoopUI();
-      status('已关闭 A–B 循环');
+      status(I18n.t('status.loopOff'));
     });
   }
 
@@ -354,13 +362,13 @@
       state.looping = true;
       loopRangeId = range.id;
       updateLoopUI();
-      status('A–B 循环：' + range.name + '（'
-        + Exporter.tc(range.in) + ' → ' + Exporter.tc(range.out) + '）');
+      status(I18n.t('status.loopOn', { name: range.name, from: Exporter.tc(range.in), to: Exporter.tc(range.out) }));
+
     }).catch(function (err) {
       state.looping = false;
       loopRangeId = null;
       updateLoopUI();
-      status('设置 A–B 循环失败：' + (err && err.message ? err.message : err), 'error');
+      status(I18n.t('status.loopFailed', { msg: err && err.message ? err.message : err }), 'error');
     });
   }
 
@@ -372,7 +380,7 @@
     }
     var range = selectedRange();
     if (!range) {
-      status('A–B 循环需要一个区间：先按 [ / ] 建区间', 'error');
+      status(I18n.t('status.loopNeedRange'), 'error');
       return;
     }
     applyLoopRange(range);
@@ -402,7 +410,7 @@
     window.markplay.mpvCommand(['set_property', 'pause', true]).then(function () {
       return window.markplay.mpvCommand([direction > 0 ? 'frame-step' : 'frame-back-step']);
     }).catch(function (err) {
-      status('逐帧失败：' + (err && err.message ? err.message : err), 'error');
+      status(I18n.t('status.frameFailed', { msg: err && err.message ? err.message : err }), 'error');
     });
   }
 
@@ -454,7 +462,7 @@
       showDropHint(false);
       var p = extractDropPath(e.dataTransfer);
       if (!p) {
-        status('拖放未识别到文件路径，请从文件资源管理器拖入', 'error');
+        status(I18n.t('status.dragNotRecognized'), 'error');
         return;
       }
       if (SUBTITLE_EXTENSIONS.indexOf(extname(p)) >= 0) {
@@ -466,12 +474,12 @@
   }
 
   function loadSubtitle(path) {
-    status('正在加载字幕：' + basename(path) + ' …');
+    status(I18n.t('status.loadingSubtitle', { name: basename(path) }));
     window.markplay.addSubtitle(path).then(function () {
-      status('字幕已加载：' + basename(path), 'ok');
-      UI.toast('字幕已加载：' + basename(path), { kind: 'success' });
+      status(I18n.t('status.subtitleLoaded', { name: basename(path) }), 'ok');
+      UI.toast(I18n.t('status.subtitleLoaded', { name: basename(path) }), { kind: 'success' });
     }).catch(function (err) {
-      status('字幕加载失败：' + (err && err.message ? err.message : err), 'error');
+      status(I18n.t('status.subtitleFailed', { msg: err && err.message ? err.message : err }), 'error');
     });
   }
 
@@ -499,7 +507,7 @@
 
   function requireVideo() {
     if (!state.videoPath) {
-      status('请先打开视频（按 O 或拖拽文件到窗口）', 'error');
+      status(I18n.t('errors.noVideo'), 'error');
       return false;
     }
     return true;
@@ -522,23 +530,23 @@
     window.markplay.openFileDialog().then(function (p) {
       if (p) loadVideo(p);
     }).catch(function (err) {
-      status('打开文件对话框失败：' + (err && err.message ? err.message : String(err)), 'error');
+      status(I18n.t('status.openFailed', { msg: err && err.message ? err.message : String(err) }), 'error');
     });
   }
 
   function loadVideo(path) {
-    showLoading(true, '正在加载：' + basename(path));
-    status('正在加载：' + basename(path) + ' …');
+    showLoading(true, I18n.t('ui.loadingFile', { name: basename(path) }));
+    status(I18n.t('status.loading', { name: basename(path) }));
     window.markplay.loadVideo(path).then(function (r) {
       if (!r || !r.ok) {
         showLoading(false);
-        status('打开失败：' + (r && r.error ? r.error : '未知错误'), 'error');
+        status(I18n.t('status.openFailed', { msg: r && r.error ? r.error : I18n.t('common.unknown') }), 'error');
         return;
       }
       afterVideoOpened(path).then(function () { showLoading(false); });
     }).catch(function (err) {
       showLoading(false);
-      status('打开失败：' + (err && err.message ? err.message : String(err)), 'error');
+      status(I18n.t('status.openFailed', { msg: err && err.message ? err.message : String(err) }), 'error');
     });
   }
 
@@ -575,10 +583,11 @@
       updateTotal();
       updatePlayBtn();
       updateVideoRect();
-      status(n > 0 || Markers.getRanges().length > 0
-        ? '已打开：' + basename(path)
-          + '（恢复 ' + n + ' 个标记 / ' + Markers.getRanges().length + ' 个区间）'
-        : '已打开：' + basename(path), 'ok');
+      status((n > 0 || Markers.getRanges().length > 0)
+        ? I18n.t('status.openedWith', {
+            name: basename(path), markers: n, ranges: Markers.getRanges().length,
+          })
+        : I18n.t('status.opened', { name: basename(path) }), 'ok');
       // 新 mpv 实例是默认音量，把记住的音量重新应用一次
       window.markplay.mpvCommand(['set_property', 'volume', preferredVolume]).catch(function () {});
       // 清掉上一部片子的 A–B 循环点，否则新片会沿用旧时间点
@@ -605,7 +614,7 @@
     window.markplay.mpvGet('pause').then(function (paused) {
       return window.markplay.mpvCommand(['set_property', 'pause', !paused]);
     }).catch(function (err) {
-      status('播放控制失败：' + (err && err.message ? err.message : String(err)), 'error');
+      status(I18n.t('status.playFailed', { msg: err && err.message ? err.message : String(err) }), 'error');
     });
   }
 
@@ -634,7 +643,7 @@
     if (!el) return;
     var s = TimelineView.getState();
     if (s.full) {
-      el.textContent = '全片';
+      el.textContent = I18n.t('ui.zoomFull');
     } else {
       el.textContent = '×' + Math.max(1.1, s.duration / s.span).toFixed(1);
     }
@@ -685,8 +694,8 @@
       var b = document.createElement('div');
       b.className = 'scene-bubble';
       b.style.left = (ratio * 100) + '%';
-      b.dataset.tip = '转场 @ ' + Exporter.tc(t);
-      b.title = '画面转场 @ ' + Exporter.tc(t) + '（提示，点击跳转）';
+      b.dataset.tip = I18n.t('ui.sceneTip', { tc: Exporter.tc(t) });
+      b.title = I18n.t('ui.sceneTitle', { tc: Exporter.tc(t) });
       b.addEventListener('pointerdown', function (e) { e.stopPropagation(); });
       b.addEventListener('click', function (e) {
         e.stopPropagation();
@@ -703,18 +712,18 @@
     btn.classList.toggle('active', state.showScenes);
     btn.classList.toggle('busy', state.scanning);
     if (state.scanning) {
-      btn.textContent = '识别中';
-      btn.title = '正在识别转场…点击取消';
+      btn.textContent = I18n.t('ui.scenesScanning');
+      btn.title = I18n.t('ui.scenesScanningTitle');
     } else if (state.scenes.length && state.showScenes) {
-      btn.textContent = '转场 ' + hits;
-      btn.title = '当前阈值 ' + state.threshold.toFixed(2) + ' 下命中 ' + hits + ' 处，点击隐藏'
-        + '\n再点一次右侧的灵敏度面板可调整阈值';
+      btn.textContent = I18n.t('ui.scenesCount', { n: hits });
+      btn.title = I18n.t('ui.scenesActiveTitle', { th: state.threshold.toFixed(2), n: hits });
+
     } else if (state.scenes.length) {
-      btn.textContent = '转场';
-      btn.title = '已有 ' + state.scenes.length + ' 帧分数，点击显示提示浮标';
+      btn.textContent = I18n.t('ui.scenes');
+      btn.title = I18n.t('ui.scenesHasDataTitle', { n: state.scenes.length });
     } else {
-      btn.textContent = '转场';
-      btn.title = '识别画面转场，在时间轴上显示提示浮标（只是提示，不会打点）';
+      btn.textContent = I18n.t('ui.scenes');
+      btn.title = I18n.t('ui.scenesDesc');
     }
   }
 
@@ -725,15 +734,15 @@
   function afterSceneDetected(cached) {
     var total = state.scenes.length;
     if (!total) {
-      status('没有收集到画面变化（画面几乎静止，或视频太短）');
+      status(I18n.t('status.scenesNoFrames'));
       return;
     }
     var hits = visibleSceneTimes().length;
     if (hits > 0) {
-      status('收集 ' + total + ' 帧变化，阈值 ' + state.threshold.toFixed(2)
-        + ' 命中 ' + hits + ' 处'
-        + (cached ? '（复用上次结果）' : '')
-        + ' · 仅提示，点浮标可跳转', 'ok');
+      status(I18n.t('status.scenesFound', {
+        total, th: state.threshold.toFixed(2), hits,
+        cached: cached ? I18n.t('status.scenesCached') : '',
+      }), 'ok');
       return;
     }
 
@@ -744,11 +753,12 @@
       updateSceneButton();
       updateScenePanel();
       var next = visibleSceneTimes().length;
-      status('阈值 0.40 一处都没命中，已自动降到 ' + state.threshold.toFixed(2)
-        + '（命中 ' + next + ' 处）。可在灵敏度面板继续微调', next ? 'ok' : 'normal');
+      status(I18n.t('status.scenesAutoLower', {
+        from: '0.40', to: state.threshold.toFixed(2), n: next,
+      }), next ? 'ok' : 'normal');
       return;
     }
-    status('收集了 ' + total + ' 帧，但差异都很微弱，可在灵敏度面板把阈值拖到最低试试');
+    status(I18n.t('status.scenesAllWeak', { n: total }));
   }
 
   /** 同步灵敏度面板上的数值与提示 */
@@ -761,16 +771,16 @@
     if (!hintEl) return;
 
     if (!state.scenes.length) {
-      hintEl.textContent = '还没扫描';
+      hintEl.textContent = I18n.t('ui.scenePanelNotScanned');
       return;
     }
     var hits = visibleSceneTimes().length;
     var total = state.scenes.length;
     if (hits === 0) {
-      hintEl.textContent = '收集 ' + total + ' 帧，当前阈值没有命中 —— 往左拖降低灵敏度门槛';
+      hintEl.textContent = I18n.t('ui.scenePanelNoHit', { total });
       hintEl.classList.add('set');
     } else {
-      hintEl.textContent = '收集 ' + total + ' 帧，命中 ' + hits + ' 处';
+      hintEl.textContent = I18n.t('ui.scenePanelHits', { total, hits });
       hintEl.classList.remove('set');
     }
   }
@@ -805,17 +815,21 @@
     state.scanning = true;
     updateSceneButton();
     updateScenePanel();
-    status('正在扫描画面变化…（长片可能两三分钟，只需扫一次，之后调阈值不用再等）');
+    status(I18n.t('status.scenesScanning'));
     window.markplay.detectScenes().then(function (r) {
       if (!r || !r.ok) {
         state.scanning = false;
         updateSceneButton();
-        status('转场识别失败：' + ((r && r.error) || '未知错误'), 'error');
+        status(I18n.t('status.scenesFailed', {
+          msg: (r && r.error) || I18n.t('common.unknown'),
+        }), 'error');
       }
     }).catch(function (err) {
       state.scanning = false;
       updateSceneButton();
-      status('转场识别失败：' + (err && err.message ? err.message : String(err)), 'error');
+      status(I18n.t('status.scenesFailed', {
+        msg: err && err.message ? err.message : String(err),
+      }), 'error');
     });
   }
 
@@ -823,7 +837,7 @@
     window.markplay.cancelScenes().catch(function () {});
     state.scanning = false;
     updateSceneButton();
-    status('已取消转场识别');
+    status(I18n.t('status.scenesCancelled'));
   }
 
   /** 跳到上一个/下一个转场提示点（只跳转，不打点） */
@@ -831,11 +845,11 @@
     var times = visibleSceneTimes();
     var t = Scenes.nearest(times, state.currentTime, dir);
     if (t == null) {
-      status(dir === 'prev' ? '前面没有转场提示了' : '后面没有转场提示了');
+      status(I18n.t(dir === 'prev' ? 'status.noScenePrev' : 'status.noSceneNext'));
       return;
     }
     seekTo(t);
-    status('跳到转场 @ ' + Exporter.tc(t));
+    status(I18n.t('status.jumpScene', { tc: Exporter.tc(t) }));
   }
 
   /** 转场按钮：没扫过就扫，扫过就切换显示 */
@@ -849,8 +863,8 @@
       updateScenePanel();
       var hits = visibleSceneTimes().length;
       status(state.showScenes
-        ? (hits ? '已显示 ' + hits + ' 处转场提示' : '当前阈值没有命中，可在灵敏度面板调低')
-        : '已隐藏转场提示');
+        ? (hits ? I18n.t('status.scenesShown', { n: hits }) : I18n.t('status.scenesShownNone'))
+        : I18n.t('status.scenesHidden'));
       if (state.showScenes) showScenePanel(true);
       return;
     }
@@ -894,14 +908,13 @@
     var el = $('fps-label');
     if (!el) return;
     if (!(state.fps > 0)) {
-      el.textContent = '工程帧率：--';
+      el.textContent = I18n.t('ui.fpsUnknown');
       return;
     }
     var shown = Math.abs(state.fps - Math.round(state.fps)) < 0.001
       ? String(Math.round(state.fps))
       : state.fps.toFixed(3);
-    el.textContent = '工程帧率：' + shown + ' fps · EDL/帧号按 '
-      + Exporter.nominalFps() + ' fps 换算';
+    el.textContent = I18n.t('ui.fpsKnown', { fps: shown, nominal: Exporter.nominalFps() });
   }
 
   function seekFromPointerEvent(e) {
@@ -971,7 +984,7 @@
   function addMarker(kind) {
     if (!requireVideo()) return;
     var m = Markers.add(kind);
-    if (m) status('已打点 ' + m.label + ' @ ' + Exporter.tc(m.time), 'ok');
+    if (m) status(I18n.t('status.addedMarker', { label: m.label, tc: Exporter.tc(m.time) }), 'ok');
   }
 
   // ---------- mpv 事件 ----------
@@ -1037,17 +1050,18 @@
           break;
         case 'mpv-ended':
           onPaused(true);
-          status('播放结束');
+          status(I18n.t('status.playbackEnded'));
           break;
         case 'mpv-error':
           showLoading(false);
-          status('播放错误：' + ev.message, 'error');
-          UI.toast('播放错误：' + ev.message, { kind: 'error' });
+          status(I18n.t('status.playFailed', { msg: ev.message }), 'error');
+          UI.toast(I18n.t('status.playFailed', { msg: ev.message }), { kind: 'error' });
           break;
         case 'open-failed':
           showLoading(false);
-          status('打开失败：' + (ev.message || '未知错误'), 'error');
-          UI.toast('打开失败：' + (ev.message || '未知错误'), { kind: 'error' });
+          var ofmsg = ev.message || I18n.t('common.unknown');
+          status(I18n.t('status.openFailed', { msg: ofmsg }), 'error');
+          UI.toast(I18n.t('status.openFailed', { msg: ofmsg }), { kind: 'error' });
           break;
         case 'open-file':
           // 来自应用菜单"文件 > 打开视频" / 最近打开 / 命令行
@@ -1058,7 +1072,7 @@
           if (ev.path && ev.path !== state.videoPath) afterVideoOpened(ev.path);
           break;
         case 'subtitle-added':
-          status('字幕已加载：' + basename(ev.path || ''), 'ok');
+          status(I18n.t('status.subtitleLoaded', { name: basename(ev.path || '') }), 'ok');
           break;
         case 'backup-sidecar':
           // 菜单「文件 → 备份标记文件」(Ctrl+S) 触发
@@ -1070,9 +1084,11 @@
           updateScenePanel();
           break;
         case 'scene-progress':
-          status('正在扫描画面变化…已收 ' + (ev.frames || 0) + ' 帧'
-            + (ev.scannedTo > 0 ? '，到 ' + Exporter.tc(ev.scannedTo) : '')
-            + '（' + ev.elapsedSec + 's）');
+          status(I18n.t('status.scenesProgress', {
+            frames: ev.frames || 0,
+            pos: ev.scannedTo > 0 ? I18n.t('status.scenesProgressPos', { tc: Exporter.tc(ev.scannedTo) }) : '',
+            sec: ev.elapsedSec,
+          }));
           break;
         case 'scene-detected':
           state.scanning = false;
@@ -1092,8 +1108,8 @@
         case 'scene-error':
           state.scanning = false;
           updateSceneButton();
-          status('转场识别失败：' + ev.message, 'error');
-          UI.toast('转场识别失败：' + ev.message, { kind: 'error' });
+          status(I18n.t('status.scenesFailed', { msg: ev.message }), 'error');
+          UI.toast(I18n.t('status.scenesFailed', { msg: ev.message }), { kind: 'error' });
           break;
         case 'surface-dragover':
           // 文件正悬停在视频画面上：提示松开以打开
@@ -1103,6 +1119,11 @@
           if (ev.action === 'in') zoomStep(true);
           else if (ev.action === 'out') zoomStep(false);
           else zoomFit();
+          break;
+        case 'language-changed':
+          // 主进程换语言后：重刷静态文案 + 重绘 JS 生成的内容，不重载页面
+          I18n.setLanguage(ev.language);
+          status(I18n.t('locale.switched', { name: ev.name }), 'ok');
           break;
         case 'wheel':
           // 视频画面上的 Ctrl/Shift+滚轮（触摸板同样适用）：缩放 / 平移
@@ -1162,7 +1183,9 @@
         if (k === 'z') {
           e.preventDefault();
           var ok = e.shiftKey ? Markers.redo() : Markers.undo();
-          status(ok ? (e.shiftKey ? '已重做' : '已撤销') : '没有可' + (e.shiftKey ? '重做' : '撤销') + '的操作');
+          status(ok
+            ? I18n.t(e.shiftKey ? 'status.redone' : 'status.undone')
+            : I18n.t(e.shiftKey ? 'status.nothingToRedo' : 'status.nothingToUndo'));
         }
         return;
       }
@@ -1214,7 +1237,7 @@
         case 'f': addMarker('F'); break;
         case 'g': addMarker('G'); break;
         case 'delete':
-          if (Markers.deleteSelected()) status('已删除选中标记（Ctrl+Z 可撤销）');
+          if (Markers.deleteSelected()) status(I18n.t('status.deletedMarker'));
           break;
         case 'o': openFile(); break;
         case 'e': {
@@ -1238,6 +1261,15 @@
     $('btn-speed-rev').addEventListener('click', function () { toggleSpeed('rev2x'); });
     $('btn-loop').addEventListener('click', toggleLoop);
     $('btn-scenes').addEventListener('click', toggleScenes);
+
+    // 语言切换：交给主进程改设置 + 重建菜单，再回来重刷界面
+    var langBtn = $('btn-lang');
+    if (langBtn) {
+      langBtn.addEventListener('click', function () {
+        var next = I18n.currentLanguage() === 'zh-CN' ? 'en-US' : 'zh-CN';
+        window.markplay.switchLanguage(next);
+      });
+    }
 
     // 转场灵敏度面板：拖动即时过滤，不需要重扫
     var thr = $('scene-threshold');
@@ -1292,7 +1324,7 @@
     if (mergeChk) {
       mergeChk.addEventListener('change', function () {
         var b = $('btn-clip-batch');
-        if (b) b.textContent = mergeChk.checked ? '批量剪辑并合并' : '批量剪辑（按区间）';
+        if (b) b.textContent = I18n.t(mergeChk.checked ? 'ui.clipBatchMerge' : 'ui.clipBatch');
       });
     }
 
@@ -1332,6 +1364,23 @@
   }
 
   function boot() {
+    // 首帧就把标注过的文案换成当前语言（preload 已经注入正确语言，不会闪）
+    I18n.applyI18n();
+
+    // 语言切换后 JS 生成的内容要重绘（列表、fps 标签、按钮状态等）
+    I18n.onLanguageChange(function () {
+      Markers.renderList();
+      Markers.renderRanges();
+      renderScenes();
+      updateSceneButton();
+      updateScenePanel();
+      updateFpsLabel();
+      updateLoopUI();
+      updateZoomLabel();
+      updateRangeHint();
+      updatePlayBtn();
+    });
+
     wireCrashLog();
     wireControls();
     wireTimeline();
@@ -1368,9 +1417,9 @@
     // 版本信息（从主进程取，app.getVersion() 才准确）
     var info = window.markplay.getAppInfo ? window.markplay.getAppInfo() : Promise.resolve(null);
     Promise.resolve(info).then(function (v) {
-      if (v && v.version) status('就绪 · MarkPlay ' + v.version);
+      if (v && v.version) status(I18n.t('status.readyVersion', { version: v.version }));
     }).catch(function () {
-      status('就绪');
+      status(I18n.t('ui.ready'));
     });
   }
 

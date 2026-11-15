@@ -2,14 +2,25 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。日期为发布日。
 
-## [未发布]
+## [1.8.0] - 2026-11-15
 
-### 工程
+### 新增
 
-- 新增代码签名工具链：`tools/sign.ps1`（签名 + 自动校验 + 排查提示）、`tools/make-test-cert.ps1`（自签名测试证书）
-- `package.json` 补 `signingHashAlgorithms: sha256` 与 RFC3161 时间戳服务器
-- 新增 `npm run sign` / `npm run sign:check`
-- `docs/RELEASE.md` 按实测结果重写签名章节
+- **中英文界面切换**：菜单「语言 / Language」或控制条的 `中/EN` 按钮可即时切换，无需重启。
+  - 首次启动跟随系统语言，之后记住你的选择（写在 `settings.json` 的 `language`）。
+  - 切换不重载窗口：正在播的视频、已打的标记、剪辑进度都不会丢。
+  - 覆盖全部界面文案：菜单、对话框、快捷键说明、侧栏、状态栏、toast、错误提示、默认区间命名。
+  - 实现是把文案集中到 `src/locales/{zh-CN,en-US}.js` 两个纯数据字典，用点号路径取词；
+    缺词时回退中文，再缺则显示 key 本身，绝不因为少一句翻译就崩。
+
+### 内部
+
+- 新增 `src/i18n.js`（语言归一、取词、插值，主进程与渲染进程共用）
+- 新增 `src/renderer/i18n-apply.js`：按 `data-i18n` / `data-i18n-title` / `data-i18n-placeholder`
+  标注刷新 DOM，`<html lang>` 同步
+- preload 通过**同步 IPC** 注入当前语言，页面首帧就是正确语言，不会闪一下再变
+- 新增 `tests/i18n.test.js`：断言中英字典键集合完全相同、占位符一致、无空值，
+  并覆盖语言归一与缺词回退；测试辅助加了真实的 `I18n` 注入
 
 ## [1.6.0] - 2026-11-15
 
@@ -162,3 +173,12 @@
 - 修复原 v7 的第一批确定性 bug，补撤销、逐帧、A–B 循环、拖动改时间、最近打开、字幕、批量剪辑。
 
 > v7 之前的早期版本没有留存变更记录。
+
+## [未发布]
+
+### 工程
+
+- 新增代码签名工具链：`tools/sign.ps1`（签名 + 自动校验 + 排查提示）、`tools/make-test-cert.ps1`（自签名测试证书）
+- `package.json` 补 `signingHashAlgorithms: sha256` 与 RFC3161 时间戳服务器
+- 新增 `npm run sign` / `npm run sign:check`
+- `docs/RELEASE.md` 按实测结果重写签名章节

@@ -49,7 +49,7 @@ var UI = (function () {
     close.className = 'toast-close';
     close.type = 'button';
     close.textContent = '✕';
-    close.title = '关闭';
+    close.title = I18n.t('common.close');
     close.addEventListener('click', function () { removeEl(el); });
     el.appendChild(close);
 

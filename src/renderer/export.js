@@ -143,7 +143,7 @@ var Exporter = (function () {
     (ranges || []).forEach(function (r, i) {
       lines.push([
         i + 1,
-        csvCell(r.name || ('区间 ' + (i + 1))),
+        csvCell(r.name || I18n.t('ui.rangeName', { n: i + 1 })),
         r.in.toFixed(3),
         tc(r.in),
         Math.round(r.in * rate),
@@ -200,7 +200,7 @@ var Exporter = (function () {
         tcFrames(r.in, rate) + ' ' + tcFrames(r.out, rate) + ' ' +
         tcFrames(recCursor, rate) + ' ' + tcFrames(recOut, rate)
       );
-      lines.push('* FROM CLIP NAME: ' + (r.name || ('区间 ' + (i + 1))));
+      lines.push('* FROM CLIP NAME: ' + (r.name || I18n.t('ui.rangeName', { n: i + 1 })));
       recCursor = recOut;
     });
     return lines.join('\n') + '\n';
@@ -226,7 +226,7 @@ var Exporter = (function () {
       }),
       ranges: (ranges || []).map(function (r, i) {
         return {
-          name: r.name || ('区间 ' + (i + 1)),
+          name: r.name || I18n.t('ui.rangeName', { n: i + 1 }),
           in: r.in,
           out: r.out,
           inTc: tc(r.in),
@@ -245,19 +245,19 @@ var Exporter = (function () {
     var ranges = Markers.getRanges();
 
     if (format === 'rng' && !ranges.length) {
-      status('还没有区间：播到起点按 [ 设入点，到终点按 ] 建区间');
+      status(I18n.t('status.exportNoRanges'));
       return Promise.resolve();
     }
     if (format === 'csv' && !markers.length) {
-      status('没有可导出的标记，请先打点');
+      status(I18n.t('status.exportNoMarkers'));
       return Promise.resolve();
     }
     if (format === 'edl' && !ranges.length && !markers.length) {
-      status('没有区间或标记可导出');
+      status(I18n.t('status.exportNothing'));
       return Promise.resolve();
     }
     if (format === 'json' && !markers.length && !ranges.length) {
-      status('没有可导出的内容');
+      status(I18n.t('status.exportNothing'));
       return Promise.resolve();
     }
 
@@ -268,7 +268,7 @@ var Exporter = (function () {
     var defName = base + suffix;
 
     return window.markplay.saveDialog(defName).then(function (out) {
-      if (!out) { status('已取消导出'); return; }
+      if (!out) { status(I18n.t('status.exportCancelled')); return; }
       var duration = getDuration();
       var fps = sourceFps();
       var content;
@@ -282,18 +282,18 @@ var Exporter = (function () {
         content = toJSON(markers, duration, base, fps, ranges);
       }
       return window.markplay.writeTextFile(out, content).then(function () {
-        var label = format === 'rng' ? '区间 CSV' : format.toUpperCase();
-        status('已导出 ' + label + '：' + out);
-        UI.toast('已导出 ' + label + '：' + basename(out), {
+        var label = format === 'rng' ? I18n.t('clipLabels.rangeCsv') : format.toUpperCase();
+        status(I18n.t('status.exportDone', { format: label, path: out }));
+                 UI.toast(I18n.t('status.exportDone', { format: label, path: basename(out) }), {
           kind: 'success',
-          actionLabel: '在文件夹中显示',
+          actionLabel: I18n.t('ui.revealInFolder'),
           onAction: function () { window.markplay.showItemInFolder(out); },
         });
       });
     }).catch(function (err) {
       var msg = err && err.message ? err.message : String(err);
-      status('导出失败：' + msg);
-      UI.toast('导出失败：' + msg, { kind: 'error' });
+      status(I18n.t('status.exportFailed', { msg }));
+               UI.toast(I18n.t('status.exportFailed', { msg }), { kind: 'error' });
     });
   }
 
@@ -328,7 +328,7 @@ var Exporter = (function () {
     ranges.forEach(function (r, i) {
       var opt = document.createElement('option');
       opt.value = r.id;
-      opt.textContent = (r.name || ('区间 ' + (i + 1))) + '  ' + tc(r.in) + ' → ' + tc(r.out);
+      opt.textContent = (r.name || I18n.t('ui.rangeName', { n: i + 1 })) + '  ' + tc(r.in) + ' → ' + tc(r.out);
       sel.appendChild(opt);
     });
     if (ids.indexOf(prev) >= 0) sel.value = prev;
@@ -387,7 +387,7 @@ var Exporter = (function () {
       window.markplay.runClip(opts).then(function (r) {
         if (!r || !r.ok) {
           pendingClip = null;
-          reject(new Error((r && r.error) || '剪辑启动失败'));
+          reject(new Error((r && r.error) || I18n.t('status.clipFailed', { msg: 'start' })));
         }
       }).catch(function (err) {
         pendingClip = null;
@@ -399,12 +399,12 @@ var Exporter = (function () {
   function startClip() {
     if (clipping) return Promise.resolve();
     var videoPath = getVideoPath();
-    if (!videoPath) { status('请先打开视频'); return Promise.resolve(); }
+    if (!videoPath) { status(I18n.t('errors.noVideo')); return Promise.resolve(); }
     var ranges = Markers.getRanges();
     var sel = document.getElementById('clip-range');
     var range = ranges.find(function (r) { return r.id === (sel && sel.value); }) || ranges[0];
     if (!range) {
-      status('还没有区间：播到起点按 [ 设入点，到终点按 ] 建区间');
+      status(I18n.t('status.exportNoRanges'));
       return Promise.resolve();
     }
 
@@ -420,12 +420,12 @@ var Exporter = (function () {
     }
 
     return window.markplay.saveDialog(name).then(function (out) {
-      if (!out) { status('已取消剪辑'); return; }
+      if (!out) { status(I18n.t('status.clipCancelled')); return; }
       var reencode = document.getElementById('clip-reencode');
       clipping = true;
       setClipBusy(true);
       setProgress(0);
-      status('剪辑中：' + (range.name || '区间') + ' …');
+      status(I18n.t('status.clipInProgress', { name: range.name || I18n.t('clipLabels.clip') }));
       return runOne({
         input: videoPath,
         ss: range.in,
@@ -435,16 +435,16 @@ var Exporter = (function () {
         duration: getDuration(),
       }).then(function (output) {
         setProgress(100);
-        status('剪辑完成：' + output);
-        UI.toast('剪辑完成：' + basename(output), {
+        status(I18n.t('status.clipDone', { path: output }));
+                 UI.toast(I18n.t('status.clipDone', { path: basename(output) }), {
           kind: 'success',
-          actionLabel: '在文件夹中显示',
+          actionLabel: I18n.t('ui.revealInFolder'),
           onAction: function () { window.markplay.showItemInFolder(output); },
         });
       }).catch(function (err) {
         var msg = err && err.message ? err.message : String(err);
-        status('剪辑失败：' + msg);
-        UI.toast('剪辑失败：' + msg, { kind: 'error' });
+        status(I18n.t('status.clipFailed', { msg }));
+                 UI.toast(I18n.t('status.clipFailed', { msg }), { kind: 'error' });
       }).then(function () {
         clipping = false;
         batchState = null;
@@ -452,7 +452,7 @@ var Exporter = (function () {
         refreshClipSelectors();
       });
     }).catch(function (err) {
-      status('剪辑失败：' + (err && err.message ? err.message : String(err)));
+      status(I18n.t('status.clipFailed', { msg: err && err.message ? err.message : String(err) }));
     });
   }
 
@@ -467,7 +467,7 @@ var Exporter = (function () {
       window.markplay.runMergeClip(opts).then(function (r) {
         if (!r || !r.ok) {
           pendingClip = null;
-          reject(new Error((r && r.error) || '合并剪辑启动失败'));
+          reject(new Error((r && r.error) || I18n.t('status.mergedFailed', { msg: 'start' })));
         }
       }).catch(function (err) {
         pendingClip = null;
@@ -483,13 +483,13 @@ var Exporter = (function () {
   function startMergedClip(ranges, videoPath) {
     var base = stripExt(basename(videoPath)) || 'markplay';
     return window.markplay.saveDialog(base + '_merged.mp4').then(function (out) {
-      if (!out) { status('已取消合并剪辑'); return; }
+      if (!out) { status(I18n.t('status.mergeCancelled')); return; }
 
       clipping = true;
       batchState = null; // 合并的进度是整条链路的 0–100，不再按段换算
       setClipBusy(true);
       setProgress(0);
-      status('合并剪辑（重新编码）：' + ranges.length + ' 个区间 → ' + basename(out) + ' …');
+      status(I18n.t('status.mergedProgress', { n: ranges.length, name: basename(out) }));
 
       return runMerge({
         input: videoPath,
@@ -498,16 +498,16 @@ var Exporter = (function () {
         duration: getDuration(),
       }).then(function (output) {
         setProgress(100);
-        status('合并剪辑完成：' + output);
-        UI.toast('合并剪辑完成：' + basename(output), {
+        status(I18n.t('status.mergedDone', { path: output }));
+                 UI.toast(I18n.t('status.mergedDone', { path: basename(output) }), {
           kind: 'success',
-          actionLabel: '在文件夹中显示',
+          actionLabel: I18n.t('ui.revealInFolder'),
           onAction: function () { window.markplay.showItemInFolder(output); },
         });
       }).catch(function (err) {
         var msg = err && err.message ? err.message : String(err);
-        status('合并剪辑失败：' + msg);
-        UI.toast('合并剪辑失败：' + msg, { kind: 'error' });
+        status(I18n.t('status.mergedFailed', { msg }));
+                 UI.toast(I18n.t('status.mergedFailed', { msg }), { kind: 'error' });
       }).then(function () {
         clipping = false;
         batchState = null;
@@ -515,7 +515,7 @@ var Exporter = (function () {
         refreshClipSelectors();
       });
     }).catch(function (err) {
-      status('合并剪辑失败：' + (err && err.message ? err.message : String(err)));
+      status(I18n.t('status.mergedFailed', { msg: err && err.message ? err.message : String(err) }));
     });
   }
 
@@ -526,10 +526,10 @@ var Exporter = (function () {
   function startBatchClip() {
     if (clipping) return Promise.resolve();
     var videoPath = getVideoPath();
-    if (!videoPath) { status('请先打开视频'); return Promise.resolve(); }
+    if (!videoPath) { status(I18n.t('errors.noVideo')); return Promise.resolve(); }
     var ranges = Markers.getRanges();
     if (!ranges.length) {
-      status('还没有区间：播到起点按 [ 设入点，到终点按 ] 建区间（也可用 A/B 配对或相邻配对）');
+      status(I18n.t('status.clipNeedRange'));
       return Promise.resolve();
     }
 
@@ -540,7 +540,7 @@ var Exporter = (function () {
     }
 
     return window.markplay.pickDirectory().then(function (dir) {
-      if (!dir) { status('已取消批量剪辑'); return; }
+      if (!dir) { status(I18n.t('status.batchCancelled')); return; }
       var base = stripExt(basename(videoPath)) || 'markplay';
       var reencodeEl = document.getElementById('clip-reencode');
       var reencode = !!(reencodeEl && reencodeEl.checked);
@@ -556,8 +556,9 @@ var Exporter = (function () {
         chain = chain.then(function () {
           batchState.index = i;
           setProgress(Math.round((i / ranges.length) * 100));
-          status('批量剪辑 ' + (i + 1) + '/' + ranges.length + '：'
-            + (range.name || ('区间 ' + (i + 1))));
+          status(I18n.t('status.batchClipProgress', {
+                     i: i + 1, n: ranges.length, name: range.name || I18n.t('ui.rangeName', { n: i + 1 }),
+                   }));
           var name = base + '_clip_' + String(i + 1).padStart(2, '0') + '.mp4';
           lastOutput = joinPath(dir, name);
           return runOne({
@@ -573,16 +574,16 @@ var Exporter = (function () {
 
       return chain.then(function () {
         setProgress(100);
-        status('批量剪辑完成：' + ranges.length + ' 个片段 → ' + dir);
-        UI.toast('批量剪辑完成：' + ranges.length + ' 个片段', {
+        status(I18n.t('status.batchClipDone', { n: ranges.length, dir }));
+                 UI.toast(I18n.t('status.batchClipDone', { n: ranges.length, dir }), {
           kind: 'success',
-          actionLabel: '在文件夹中显示',
+          actionLabel: I18n.t('ui.revealInFolder'),
           onAction: function () { window.markplay.showItemInFolder(lastOutput); },
         });
       }).catch(function (err) {
         var msg = err && err.message ? err.message : String(err);
-        status('批量剪辑中断：' + msg);
-        UI.toast('批量剪辑中断：' + msg, { kind: 'error' });
+        status(I18n.t('status.batchClipFailed', { msg }));
+                 UI.toast(I18n.t('status.batchClipFailed', { msg }), { kind: 'error' });
       }).then(function () {
         clipping = false;
         batchState = null;
@@ -590,7 +591,7 @@ var Exporter = (function () {
         refreshClipSelectors();
       });
     }).catch(function (err) {
-      status('批量剪辑失败：' + (err && err.message ? err.message : String(err)));
+      status(I18n.t('status.batchClipFailed', { msg: err && err.message ? err.message : String(err) }));
     });
   }
 
@@ -619,7 +620,7 @@ var Exporter = (function () {
     if (pendingClip) {
       var p = pendingClip;
       pendingClip = null;
-      p.reject(new Error(message || '剪辑失败'));
+      p.reject(new Error(message || I18n.t('status.clipFailed', { msg: '' })));
     }
   }
 

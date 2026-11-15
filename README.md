@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078d4.svg)](#环境要求)
-[![Version](https://img.shields.io/badge/version-v1.6.0-green.svg)](#)
+[![Version](https://img.shields.io/badge/version-v1.8.0-green.svg)](#)
 
 **中文** | [English](README.en.md)
 
@@ -71,7 +71,8 @@ MarkPlay 把这三步做成了一套连贯的手势和快捷键：
 - **A–B 循环**：按 `L` 循环选中区间，按钮显示 `A–B 1` 这样的序号，换区间自动跟随；
 - **2x 变速**：左键点画面 = 2x 正放/恢复，右键点画面 = 2x 倒放/恢复（倒放为"暂停+定时精确回退"模拟）；
 - **视频全屏**：`F11` 或点 ⛶，`ESC` 退出；
-- **字幕**：自动加载视频旁的同名字幕；把 `.srt/.ass/.vtt` 拖进窗口也能挂上。
+- **字幕**：自动加载视频旁的同名字幕；把 `.srt/.ass/.vtt` 拖进窗口也能挂上；
+- **中英双语界面**：菜单「语言 / Language」或控制条的 `中/EN` 按钮即时切换，不重启、不丢当前进度；首次启动跟随系统语言，之后记住选择。
 
 **标记与区间**
 

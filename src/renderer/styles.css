@@ -456,3 +456,11 @@ button:disabled, input:disabled, select:disabled {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #3a3f4a; border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: #4a505c; }
+
+/* 语言切换按钮：等宽字体让「中/EN」稳定不跳 */
+.lang-btn {
+  font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+  font-size: 11px;
+  min-width: 42px;
+  letter-spacing: .2px;
+}

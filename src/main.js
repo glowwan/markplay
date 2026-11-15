@@ -33,6 +33,26 @@ const {
   toConcatLine,
 } = require('./media-utils');
 const { backupPathFor, isBackupOf, pickBackupsToDelete } = require('./sidecar-backup');
+const { SUPPORTED, createTranslator, normalize } = require('./i18n');
+const dictZh = require('./locales/zh-CN');
+const dictEn = require('./locales/en-US');
+
+/** 当前界面语言（zh-CN / en-US），启动时由设置或系统语言决定 */
+let currentLang = 'zh-CN';
+/** 主进程侧的翻译函数；切换语言时重建 */
+let t = createTranslator('zh-CN', dictZh, dictZh);
+
+/** 语言字典表 */
+const DICTS = { 'zh-CN': dictZh, 'en-US': dictEn };
+
+/**
+ * 设置当前语言并重建翻译函数。
+ * @param {'zh-CN'|'en-US'} lang
+ */
+function setLanguage(lang) {
+  currentLang = normalize(lang);
+  t = createTranslator(currentLang, DICTS[currentLang], dictZh);
+}
 
 // ---------- 常量 ----------
 
@@ -384,7 +404,7 @@ async function waitForMpvPipe(pipePath) {
       await sleep(MPV_CONNECT_INTERVAL_MS);
     }
   }
-  throw new Error(`连接 mpv IPC 管道超时: ${lastErr ? lastErr.message : '未知错误'}`);
+  throw new Error(t('errors.pipeTimeout', { msg: lastErr ? lastErr.message : t('common.unknown') }));
 }
 
 /**
@@ -436,8 +456,8 @@ async function startMpv() {
   mpvProcess.once('error', (err) => {
     const missing = err.code === 'ENOENT';
     const message = missing
-      ? `找不到 mpv.exe（${mpvExe}）。请把 mpv.exe 放到 resources\\bin\\ 下，或运行 node tools/fetch-binaries.js 自动下载。`
-      : `mpv 启动失败: ${err.message}（路径: ${mpvExe}）`;
+      ? t('errors.mpvNotFound', { exe: mpvExe })
+      : t('errors.mpvStart', { msg: `${err.message} (${mpvExe})` });
     console.error('[main]', message);
     mpvProcess = null;
     if (!quitting) {
@@ -446,12 +466,10 @@ async function startMpv() {
         warnedMpvMissing = true;
         const box = {
           type: 'error',
-          title: '缺少 mpv.exe',
-          message: 'MarkPlay 需要 mpv.exe 才能播放视频',
-          detail: '把 mpv.exe 放到安装目录的 resources\\bin\\ 下即可。\n'
-            + '开发环境请运行：node tools/fetch-binaries.js\n\n'
-            + '下载地址：https://github.com/shinchiro/mpv-winbuild-cmake/releases',
-          buttons: ['知道了'],
+          title: t('dialog.mpvMissingTitle'),
+          message: t('dialog.mpvMissingMessage'),
+          detail: t('errors.mpvMissingDetail'),
+          buttons: [t('common.ok')],
         };
         const p = mainWindow && !mainWindow.isDestroyed()
           ? dialog.showMessageBox(mainWindow, box)
@@ -476,7 +494,7 @@ async function startMpv() {
     lastTime = 0;
     // 非正常退出且不是应用退出时：通知渲染进程
     if (!quitting && code !== 0) {
-      emitPlayerEvent({ type: 'mpv-error', message: `mpv 进程异常退出（code=${code}）` });
+      emitPlayerEvent({ type: 'mpv-error', message: t('errors.mpvExited', { code }) });
     }
   });
 
@@ -494,7 +512,7 @@ async function startMpv() {
       client.observe(4, 'container-fps'),
     ]);
   } catch (err) {
-    emitPlayerEvent({ type: 'mpv-error', message: `订阅 mpv 属性失败: ${err.message}` });
+    emitPlayerEvent({ type: 'mpv-error', message: t('errors.observeFailed', { msg: err.message }) });
   }
 }
 
@@ -557,7 +575,7 @@ function attachMpvHandlers(client) {
       } else if (msg.reason === 'error') {
         emitPlayerEvent({
           type: 'mpv-error',
-          message: '无法播放该文件：编码不受支持或文件已损坏',
+          message: t('errors.decodeFailed'),
         });
       }
       return;
@@ -786,7 +804,7 @@ async function ensureMpv() {
       await startMpv();
       mpvReady = true;
     } catch (err) {
-      const message = `mpv 初始化失败: ${err.message}`;
+      const message = t('errors.mpvInit', { msg: err.message });
       console.error('[main]', message);
       if (mpvProcess) {
         killChild(mpvProcess);
@@ -815,7 +833,7 @@ function runFfmpegJob(args, output, totalUs, onPercent) {
     try {
       proc = spawn(resolveBin('ffmpeg.exe'), args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     } catch (err) {
-      reject(new Error('ffmpeg 启动失败: ' + err.message));
+      reject(new Error(t('errors.ffmpegStart', { msg: err.message })));
       return;
     }
     ffmpegProcess = proc;
@@ -824,7 +842,7 @@ function runFfmpegJob(args, output, totalUs, onPercent) {
 
     proc.once('error', (err) => {
       ffmpegProcess = null;
-      reject(new Error('ffmpeg 启动失败: ' + err.message));
+      reject(new Error(t('errors.ffmpegStart', { msg: err.message })));
     });
 
     proc.stdout.setEncoding('utf8');
@@ -886,16 +904,16 @@ function targetVideoBitrate(input, durationSec) {
 function registerIpc() {
   // 发送一条原始 mpv 命令
   ipcMain.handle('mpv-command', async (event, cmdArray) => {
-    if (!mpvClient) throw new Error('mpv 尚未启动，请先加载视频');
-    if (!Array.isArray(cmdArray)) throw new Error('mpv-command 参数必须是数组');
+    if (!mpvClient) throw new Error(t('errors.noMpv'));
+    if (!Array.isArray(cmdArray)) throw new Error(t('errors.badCommand'));
     const res = await mpvClient.send(cmdArray);
     return res;
   });
 
   // 读取一个 mpv 属性
   ipcMain.handle('mpv-get', async (event, prop) => {
-    if (!mpvClient) throw new Error('mpv 尚未启动，请先加载视频');
-    if (typeof prop !== 'string' || prop.length === 0) throw new Error('属性名无效');
+    if (!mpvClient) throw new Error(t('errors.noMpv'));
+    if (typeof prop !== 'string' || prop.length === 0) throw new Error(t('errors.badProp'));
     const res = await mpvClient.send(['get_property', prop]);
     return res.data;
   });
@@ -911,12 +929,12 @@ function registerIpc() {
    */
   async function doLoadVideo(filePath, notifyRenderer) {
     if (!filePath || typeof filePath !== 'string') {
-      const err = '文件路径无效';
+      const err = t('errors.invalidPath');
       emitPlayerEvent({ type: 'open-failed', message: err });
       return { ok: false, error: err };
     }
     if (!fs.existsSync(filePath)) {
-      const err = `文件不存在: ${filePath}`;
+      const err = t('open.notFound', { path: filePath });
       emitPlayerEvent({ type: 'open-failed', message: err });
       // 顺手把失效的最近记录清掉
       if (settings) settings.removeRecent(filePath);
@@ -934,7 +952,7 @@ function registerIpc() {
         return { ok: true };
       } catch (err) {
         logError('[subtitle] add failed', filePath, err);
-        emitPlayerEvent({ type: 'open-failed', message: `加载字幕失败: ${err.message}` });
+        emitPlayerEvent({ type: 'open-failed', message: t('open.subtitleFailed', { msg: err.message }) });
         return { ok: false, error: err.message };
       }
     }
@@ -942,7 +960,7 @@ function registerIpc() {
     // 只有媒体扩展名才接受（避免误拖入图片等）
     const ext = path.extname(filePath).slice(1).toLowerCase();
     if (ext && !MEDIA_EXTENSIONS.includes(ext)) {
-      const err = `不支持的文件类型: .${ext}`;
+      const err = t('open.unsupported', { ext });
       logWarn('[video] unsupported', filePath);
       emitPlayerEvent({ type: 'open-failed', message: err });
       return { ok: false, error: err };
@@ -1054,13 +1072,13 @@ function registerIpc() {
   // 2x 播放 / 2x 倒放
   ipcMain.handle('set-speed-mode', async (event, mode) => {
     if (mode !== 'normal' && mode !== 'fwd2x' && mode !== 'rev2x') {
-      throw new Error('速度模式无效');
+      throw new Error(t('errors.badSpeedMode'));
     }
     await setSpeedMode(mode);
     return { ok: true, mode: speedMode };
   });
   ipcMain.handle('toggle-speed-mode', async (event, mode) => {
-    if (mode !== 'fwd2x' && mode !== 'rev2x') throw new Error('速度模式无效');
+    if (mode !== 'fwd2x' && mode !== 'rev2x') throw new Error(t('errors.badSpeedMode'));
     await setSpeedMode(speedMode === mode ? 'normal' : mode);
     return { ok: true, mode: speedMode };
   });
@@ -1076,10 +1094,10 @@ function registerIpc() {
   ipcMain.handle('open-file-dialog', async () => {
     const lastDir = settings ? settings.get('lastDir') : '';
     const res = await dialog.showOpenDialog(mainWindow, {
-      title: '打开视频文件',
+      title: t('dialog.openVideoTitle'),
       defaultPath: lastDir && fs.existsSync(lastDir) ? lastDir : undefined,
       properties: ['openFile'],
-      filters: [{ name: '视频/音频', extensions: MEDIA_EXTENSIONS }],
+      filters: [{ name: t('dialog.mediaFilter'), extensions: MEDIA_EXTENSIONS }],
     });
     if (res.canceled || res.filePaths.length === 0) return null;
     return res.filePaths[0];
@@ -1089,7 +1107,7 @@ function registerIpc() {
     const name = typeof defaultName === 'string' && defaultName ? defaultName : 'markers.csv';
     const lastDir = settings ? settings.get('lastDir') : '';
     const res = await dialog.showSaveDialog(mainWindow, {
-      title: '导出文件',
+      title: t('dialog.exportTitle'),
       defaultPath: lastDir && fs.existsSync(lastDir) ? path.join(lastDir, name) : name,
     });
     if (res.canceled || !res.filePath) return null;
@@ -1099,13 +1117,13 @@ function registerIpc() {
 
   ipcMain.handle('write-text-file', async (event, filePath, content) => {
     if (typeof filePath !== 'string' || typeof content !== 'string') {
-      throw new Error('write-text-file 参数无效');
+      throw new Error(t('errors.badWrite'));
     }
     await fsp.writeFile(filePath, content, 'utf8');
   });
 
   ipcMain.handle('read-json-file', async (event, filePath) => {
-    if (typeof filePath !== 'string') throw new Error('read-json-file 参数无效');
+    if (typeof filePath !== 'string') throw new Error(t('errors.badRead'));
     try {
       const text = await fsp.readFile(filePath, 'utf8');
       return JSON.parse(text);
@@ -1116,7 +1134,7 @@ function registerIpc() {
   });
 
   ipcMain.handle('write-json-file', async (event, filePath, obj) => {
-    if (typeof filePath !== 'string') throw new Error('write-json-file 参数无效');
+    if (typeof filePath !== 'string') throw new Error(t('errors.badWriteJson'));
     await fsp.writeFile(filePath, JSON.stringify(obj, null, 2), 'utf8');
   });
 
@@ -1125,9 +1143,9 @@ function registerIpc() {
   // 渲染进程把 srt/ass 拖进窗口时调用（视频子窗口拖放走 doLoadVideo 的字幕分支）
   ipcMain.handle('add-subtitle', async (event, filePath) => {
     if (typeof filePath !== 'string' || !isSubtitlePath(filePath)) {
-      throw new Error('不是有效的字幕文件');
+      throw new Error(t('errors.badSubtitle'));
     }
-    if (!fs.existsSync(filePath)) throw new Error(`字幕文件不存在: ${filePath}`);
+    if (!fs.existsSync(filePath)) throw new Error(t('errors.subtitleMissing', { path: filePath }));
     await ensureMpv();
     await mpvClient.send(['sub-add', filePath, 'select']);
     return { ok: true };
@@ -1135,7 +1153,7 @@ function registerIpc() {
 
   ipcMain.handle('pick-directory', async () => {
     const res = await dialog.showOpenDialog(mainWindow, {
-      title: '选择输出文件夹',
+      title: t('dialog.pickDirTitle'),
       properties: ['openDirectory', 'createDirectory'],
     });
     if (res.canceled || res.filePaths.length === 0) return null;
@@ -1163,6 +1181,17 @@ function registerIpc() {
   ));
   ipcMain.handle('recent-list', () => (settings ? settings.get('recentFiles') : []));
 
+  // 语言：preload 在页面脚本之前同步取值，保证首帧就是正确语言
+  ipcMain.on('get-language', (event) => {
+    event.returnValue = currentLang;
+  });
+
+  // 渲染进程主动请求切换语言（目前只由菜单触发，预留给将来的界面内切换按钮）
+  ipcMain.handle('set-language', (event, lang) => {
+    switchLanguage(lang);
+    return { ok: true, language: currentLang };
+  });
+
   // ---------- IPC：标记文件备份 ----------
 
   /**
@@ -1171,10 +1200,10 @@ function registerIpc() {
    */
   ipcMain.handle('backup-sidecar', async (event, sidecarPath) => {
     if (typeof sidecarPath !== 'string' || sidecarPath.length === 0) {
-      throw new Error('备份路径无效');
+      throw new Error(t('errors.badBackupPath'));
     }
     if (!fs.existsSync(sidecarPath)) {
-      return { ok: false, error: '标记文件还不存在（这个视频还没打过点）' };
+      return { ok: false, error: t('errors.noSidecar') };
     }
 
     const dest = backupPathFor(sidecarPath, new Date());
@@ -1207,10 +1236,10 @@ function registerIpc() {
    * 结果只通过事件推给渲染进程画成"浮标"，不落盘、不写标记。
    */
   ipcMain.handle('detect-scenes', async () => {
-    if (!currentVideoPath) return { ok: false, error: '请先打开视频' };
-    if (sceneProcess) return { ok: false, error: '正在识别中，请稍候' };
+    if (!currentVideoPath) return { ok: false, error: t('scenes.needVideo') };
+    if (sceneProcess) return { ok: false, error: t('scenes.busy') };
     if (!fs.existsSync(currentVideoPath)) {
-      return { ok: false, error: '视频文件已不存在' };
+      return { ok: false, error: t('scenes.videoGone') };
     }
 
     // 同一部片子扫过一次就直接复用：阈值在渲染进程实时过滤，不需要重扫
@@ -1242,7 +1271,7 @@ function registerIpc() {
         stdio: ['ignore', 'pipe', 'pipe'],
       });
     } catch (err) {
-      emitPlayerEvent({ type: 'scene-error', message: '无法启动 ffmpeg：' + err.message });
+      emitPlayerEvent({ type: 'scene-error', message: t('scenes.spawnFailed', { msg: err.message }) });
       return { ok: false, error: err.message };
     }
     sceneProcess = proc;
@@ -1295,7 +1324,7 @@ function registerIpc() {
     proc.once('error', (err) => {
       sceneProcess = null;
       logError('[scenes] spawn failed', err);
-      emitPlayerEvent({ type: 'scene-error', message: 'ffmpeg 启动失败：' + err.message });
+      emitPlayerEvent({ type: 'scene-error', message: t('scenes.startFailed', { msg: err.message }) });
     });
 
     proc.once('close', (code, signal) => {
@@ -1311,7 +1340,7 @@ function registerIpc() {
         const tail = stderrTail.trim().split('\n').pop() || '';
         emitPlayerEvent({
           type: 'scene-error',
-          message: `识别失败（ffmpeg 退出码 ${code}）${tail ? '：' + tail : ''}`,
+          message: t('scenes.exitFailed', { code }) + (tail ? ' ' + tail : ''),
         });
         return;
       }
@@ -1344,21 +1373,21 @@ function registerIpc() {
   ipcMain.handle('run-clip', async (event, opts) => {
     // 参数校验
     if (!opts || typeof opts.input !== 'string' || typeof opts.output !== 'string') {
-      return { ok: false, error: '剪辑参数无效：需要 input/output 路径' };
+      return { ok: false, error: t('clip.needInputOutput') };
     }
     const ss = Number(opts.ss);
     const to = Number(opts.to);
     if (!fs.existsSync(opts.input)) {
-      return { ok: false, error: `输入文件不存在: ${opts.input}` };
+      return { ok: false, error: t('clip.inputMissing', { path: opts.input }) };
     }
     if (!(ss >= 0) || !(to > ss)) {
-      return { ok: false, error: `剪辑时间范围无效: ss=${opts.ss}, to=${opts.to}` };
+      return { ok: false, error: t('clip.badRange', { ss: opts.ss, to: opts.to }) };
     }
     if (ffmpegProcess && ffmpegProcess.exitCode === null && !ffmpegProcess.killed) {
-      return { ok: false, error: '已有剪辑任务在进行中，请等待完成' };
+      return { ok: false, error: t('clip.busy') };
     }
     if (mergeInProgress) {
-      return { ok: false, error: '合并剪辑进行中，请稍候' };
+      return { ok: false, error: t('clip.mergeBusy') };
     }
 
     const ffmpegExe = resolveBin('ffmpeg.exe');
@@ -1393,7 +1422,7 @@ function registerIpc() {
     try {
       ffmpegProcess = spawn(ffmpegExe, args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     } catch (err) {
-      emitPlayerEvent({ type: 'clip-error', message: `ffmpeg 启动失败: ${err.message}` });
+      emitPlayerEvent({ type: 'clip-error', message: t('errors.ffmpegStart', { msg: err.message }) });
       return { ok: false, error: err.message };
     }
 
@@ -1407,7 +1436,7 @@ function registerIpc() {
 
     proc.once('error', (err) => {
       ffmpegProcess = null;
-      emitPlayerEvent({ type: 'clip-error', message: `ffmpeg 启动失败: ${err.message}` });
+      emitPlayerEvent({ type: 'clip-error', message: t('errors.ffmpegStart', { msg: err.message }) });
     });
 
     // -progress pipe:1 输出形如 out_time_ms=123456 的键值对
@@ -1451,7 +1480,9 @@ function registerIpc() {
         logError('[ffmpeg] exit', code, detail);
         emitPlayerEvent({
           type: 'clip-error',
-          message: `ffmpeg 退出码 ${code}${detail ? `：${detail}` : ''}`,
+          message: detail
+            ? t('errors.ffmpegCodeDetail', { code, detail })
+            : t('errors.ffmpegCode', { code }),
         });
       }
     });
@@ -1463,19 +1494,19 @@ function registerIpc() {
   ipcMain.handle('run-merge-clip', async (event, opts) => {
     if (!opts || typeof opts.input !== 'string' || typeof opts.output !== 'string'
         || !Array.isArray(opts.ranges) || opts.ranges.length === 0) {
-      return { ok: false, error: '合并参数无效：需要 input/output 与至少一个区间' };
+      return { ok: false, error: t('clip.mergeBadArgs') };
     }
     if (mergeInProgress || (ffmpegProcess && ffmpegProcess.exitCode === null && !ffmpegProcess.killed)) {
-      return { ok: false, error: '已有剪辑任务在进行中，请等待完成' };
+      return { ok: false, error: t('clip.busy') };
     }
     if (!fs.existsSync(opts.input)) {
-      return { ok: false, error: `输入文件不存在: ${opts.input}` };
+      return { ok: false, error: t('clip.inputMissing', { path: opts.input }) };
     }
     const ranges = opts.ranges
       .map((r) => ({ ss: Number(r.ss), to: Number(r.to) }))
       .filter((r) => Number.isFinite(r.ss) && Number.isFinite(r.to) && r.to > r.ss);
     if (!ranges.length) {
-      return { ok: false, error: '没有有效的区间' };
+      return { ok: false, error: t('clip.noValidRange') };
     }
 
     const isMp4 = /\.(mp4|m4v|mov)$/i.test(opts.output);
@@ -1489,7 +1520,7 @@ function registerIpc() {
       tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'markplay-merge-'));
     } catch (err) {
       mergeInProgress = false;
-      return { ok: false, error: '创建临时目录失败：' + err.message };
+      return { ok: false, error: t('clip.tmpDirFailed', { msg: err.message }) };
     }
     const total = ranges.length;
     // 合并也是重新编码：同样按源文件码率压，避免合并后的文件比源文件还大
@@ -1545,7 +1576,7 @@ function registerIpc() {
         logInfo('[ffmpeg] merge done', opts.output);
       } catch (err) {
         logError('[ffmpeg] merge failed', err);
-        emitPlayerEvent({ type: 'clip-error', message: '合并剪辑失败：' + err.message });
+        emitPlayerEvent({ type: 'clip-error', message: t('clip.mergeFailed', { msg: err.message }) });
       } finally {
         mergeInProgress = false;
         try {
@@ -1564,10 +1595,10 @@ function registerIpc() {
 async function pickAndOpenDialog() {
   const lastDir = settings ? settings.get('lastDir') : '';
   const res = await dialog.showOpenDialog(mainWindow, {
-    title: '打开视频文件',
+    title: t('dialog.openVideoTitle'),
     defaultPath: lastDir && fs.existsSync(lastDir) ? lastDir : undefined,
     properties: ['openFile'],
-    filters: [{ name: '视频/音频', extensions: MEDIA_EXTENSIONS }],
+    filters: [{ name: t('dialog.mediaFilter'), extensions: MEDIA_EXTENSIONS }],
   });
   if (res.canceled || res.filePaths.length === 0) return;
   if (settings) settings.set('lastDir', path.dirname(res.filePaths[0]));
@@ -1585,7 +1616,7 @@ function buildRecentSubmenu() {
     click: () => {
       if (!fs.existsSync(file)) {
         dialog.showMessageBox(mainWindow, {
-          type: 'warning', title: '文件不存在', message: '这个文件已经被移动或删除了：', detail: file,
+          type: 'warning', title: t('dialog.fileGoneTitle'), message: t('dialog.fileGoneMessage'), detail: file,
         });
         if (settings) settings.removeRecent(file);
         buildMenu();
@@ -1597,11 +1628,11 @@ function buildRecentSubmenu() {
     },
   }));
   if (items.length === 0) {
-    items.push({ label: '（暂无记录）', enabled: false });
+    items.push({ label: t('menu.recentEmpty'), enabled: false });
   } else {
     items.push({ type: 'separator' });
     items.push({
-      label: '清除最近记录',
+      label: t('menu.clearRecent'),
       click: () => {
         if (!settings) return;
         settings.clearRecent();
@@ -1619,13 +1650,13 @@ function buildRecentSubmenu() {
 function buildMenu() {
   const template = [
     {
-      label: '文件',
+      label: t('menu.file'),
       submenu: [
-        { label: '打开视频…', accelerator: 'CmdOrCtrl+O', click: pickAndOpenDialog },
-        { label: '最近打开', submenu: buildRecentSubmenu() },
+        { label: t('menu.openVideo'), accelerator: 'CmdOrCtrl+O', click: pickAndOpenDialog },
+        { label: t('menu.recent'), submenu: buildRecentSubmenu() },
         { type: 'separator' },
         {
-          label: '备份标记文件',
+          label: t('menu.backupSidecar'),
           // 放在菜单里而不是渲染进程 keydown：菜单加速键在输入框聚焦时也生效
           accelerator: 'CmdOrCtrl+S',
           enabled: !!currentVideoPath,
@@ -1636,65 +1667,83 @@ function buildMenu() {
           },
         },
         {
-          label: '在文件夹中显示当前视频',
+          label: t('menu.revealCurrent'),
           enabled: !!currentVideoPath,
           click: () => {
             if (currentVideoPath) shell.showItemInFolder(currentVideoPath);
           },
         },
         { type: 'separator' },
-        { label: '退出', accelerator: 'Alt+F4', role: 'quit' },
+        { label: t('menu.quit'), accelerator: 'Alt+F4', role: 'quit' },
       ],
     },
     {
-      label: '帮助',
+      // 语言切换：radio 项，勾选态跟着 settings 走
+      label: t('menu.language'),
       submenu: [
         {
-          label: '键盘快捷键',
+          label: '中文',
+          type: 'radio',
+          checked: currentLang === 'zh-CN',
+          click: () => switchLanguage('zh-CN'),
+        },
+        {
+          label: 'English',
+          type: 'radio',
+          checked: currentLang === 'en-US',
+          click: () => switchLanguage('en-US'),
+        },
+      ],
+    },
+    {
+      label: t('menu.help'),
+      submenu: [
+        {
+          label: t('menu.shortcuts'),
           click: () => {
             dialog.showMessageBox(mainWindow, {
               type: 'info',
-              title: '键盘快捷键',
-              message: 'MarkPlay 快捷键',
+              title: t('dialog.shortcutsTitle'),
+              message: t('dialog.shortcutsMessage'),
               detail: [
-                'Space        播放 / 暂停',
-                '← / →        快退 / 快进 5 秒',
-                ', / .        上一帧 / 下一帧',
-                'A B C D F G  打点',
-                'X / Z        2x 正放 / 2x 倒放（再次按下恢复）',
-                'L            A–B 循环（按剪辑面板的入点/出点）',
-                'Delete       删除选中标记',
-                'Ctrl+Z       撤销（Ctrl+Shift+Z 重做）',
-                'F11 / Esc    视频全屏 / 退出全屏',
-                'O            打开视频',
-                'E            跳到导出面板',
+                t('shortcuts.playPause'),
+                t('shortcuts.seek'),
+                t('shortcuts.frame'),
+                t('shortcuts.markers'),
+                t('shortcuts.speed'),
+                t('shortcuts.loop'),
+                t('shortcuts.del'),
+                t('shortcuts.undo'),
+                t('shortcuts.fullscreen'),
+                t('shortcuts.open'),
+                t('shortcuts.export'),
               ].join('\n'),
             });
           },
         },
         {
-          label: '打开日志文件夹',
+          label: t('menu.openLogFolder'),
           click: () => {
             if (!logger) return;
             shell.openPath(path.dirname(logger.getPath())).catch(() => {});
           },
         },
         {
-          label: '打开数据文件夹',
+          label: t('menu.openDataFolder'),
           click: () => {
             shell.openPath(app.getPath('userData')).catch(() => {});
           },
         },
         { type: 'separator' },
         {
-          label: '关于 MarkPlay',
+          label: t('menu.about'),
           click: () => {
             dialog.showMessageBox(mainWindow, {
               type: 'info',
-              title: '关于 MarkPlay',
-              message: `MarkPlay 打点播放器 v${app.getVersion()}`,
-              detail: '触摸板顺滑快进快退 · A/B/C 快捷键打点 · 标记导出与片段剪辑\n内核：mpv + ffmpeg'
-                + (logger ? `\n日志：${logger.getPath()}` : ''),
+              title: t('dialog.aboutTitle'),
+              message: `${t('app.name')} ${t('app.tagline')} v${app.getVersion()}`,
+              detail: t('about.detail')
+                + (logger ? `\n${logger.getPath()}` : ''),
             });
           },
         },
@@ -1702,6 +1751,32 @@ function buildMenu() {
     },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+/**
+ * 切换界面语言：落盘 → 重建翻译函数 → 重建菜单 → 通知渲染进程重刷文案。
+ * 不重载窗口，所以正在播的视频和标记都不会丢。
+ * @param {'zh-CN'|'en-US'} lang
+ */
+function switchLanguage(lang) {
+  const next = normalize(lang);
+  if (next === currentLang) return;
+
+  setLanguage(next);
+  if (settings) settings.set('language', next);
+  logInfo('[i18n] language ->', next);
+
+  buildMenu();
+
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    const name = next === 'zh-CN' ? '中文' : 'English';
+    mainWindow.webContents.send('player-event', {
+      type: 'language-changed',
+      language: next,
+      name,
+    });
+  }
+  // 悬浮层没有（已回滚），这里无需处理
 }
 
 // ---------- 应用生命周期 ----------
@@ -1741,6 +1816,19 @@ if (!gotSingleInstanceLock) {
 
     settings = new SettingsStore(path.join(app.getPath('userData'), 'settings.json'));
     settings.load();
+
+    // 语言：用户选过就用用户的，否则跟系统；首次启动把系统语言落盘
+    const savedLang = settings.get('language');
+    if (savedLang && SUPPORTED.includes(savedLang)) {
+      setLanguage(savedLang);
+    } else {
+      // app.getLocale() 在 Windows 上返回形如 'zh-CN' / 'en-US' 的标签
+      const sysLang = normalize(app.getLocale());
+      setLanguage(sysLang);
+      settings.set('language', sysLang);
+    }
+    logInfo('[i18n] language', currentLang, '(saved:', savedLang || 'none', ')');
+
     startupFile = findMediaArg(process.argv);
 
     createMainWindow();

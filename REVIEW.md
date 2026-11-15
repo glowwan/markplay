@@ -744,3 +744,77 @@ OV 要积累下载量，EV 才历史性地更快。这不是配置问题。
 ### 剩下真的只有一件事
 
 买证书 → 设两个环境变量 → `npm run dist`。命令一行都不用改。
+
+## 二十三、中英双语界面（v1.8.0）
+
+### 为什么不用 i18n 库
+
+需求是"两种语言、即时切换"。i18next 之类会带来：运行时依赖（项目至今零依赖）、
+打包体积、以及一套没人看得懂的插件链。而这里真正需要的只有三件事：点号路径取词、
+`{name}` 插值、缺词回退。`src/i18n.js` 一共 70 行就够。
+
+### 结构
+
+```
+src/i18n.js                  # 语言归一 + lookup + interpolate + createTranslator（主/渲染共用）
+src/locales/zh-CN.js         # 纯数据字典
+src/locales/en-US.js
+src/renderer/i18n-apply.js   # 把字典刷进 DOM
+```
+
+字典键用点号路径分组（`menu.*` / `status.*` / `ui.*` / `errors.*`），
+两个文件的结构必须完全一致——`tests/i18n.test.js` 就是断言这件事。
+
+### 首帧不闪的关键
+
+常见做法是页面加载后再 `fetch` 语言、再替换文案，会看到"中文闪一下变英文"。
+这里用 **preload 同步 IPC** 解决：
+
+```js
+const injected = ipcRenderer.sendSync('get-language');  // 主进程直接 returnValue
+```
+
+preload 在页面脚本之前执行，所以 `index.html` 里 `data-i18n` 的兜底文本
+在第一次 `applyI18n()` 时就已经是正确语言，用户看不到切换过程。
+
+### 不重载窗口
+
+`language-changed` 事件到达渲染进程后：
+
+1. `I18n.setLanguage()` 换掉 preload 里的翻译函数；
+2. `applyI18n()` 重刷所有带 `data-i18n` 标注的节点；
+3. `onLanguageChange` 回调里重绘 JS 生成的内容（标记列表、区间列表、fps 标签、
+   转场浮标、按钮状态）。
+
+正在播的视频、已打的标记、剪辑进度全部保留——重载页面会丢掉 mpv 连接，代价太大。
+
+### 三个容易漏的地方
+
+1. **`<html lang>`** 要跟着变，否则系统字体回退和屏幕阅读器都会用错语言；
+2. **`document.title`** 也要变（`<title data-i18n="app.name">`）；
+3. **测试沙盒**：markers.js / export.js 现在调用 `I18n.t()`，`node:vm` 里没有这个全局
+   就会崩。`tests/helpers.js` 改为先加载 `i18n-apply.js` 并注入真实的 `window.markplay.t`，
+   所以单元测试里跑的是真字典，而不是 mock。
+
+### 覆盖范围
+
+不是"只翻界面标签"，而是**全部用户可见文案**：
+
+- 菜单、对话框标题与正文、快捷键说明表
+- 侧栏、状态栏、toast（含按钮里的"在文件夹中显示"）
+- 主进程抛给渲染进程的每一条错误（`errors.*`）
+- 默认区间命名（`区间 3` / `Range 3`）——这条最容易漏，因为它是代码里拼出来的
+- 转场识别的所有状态文案
+
+用脚本扫过一遍：`src/main.js` 与所有渲染模块里，引号内含中文的字符串已清零
+（只剩 mpv 配置文件注释和语言菜单自身的"中文"标签，那是刻意保留的）。
+
+### 校验脚本
+
+写代码时用三个一次性脚本（`.patch/` 下，已删）做批量替换与校验，
+最终沉淀为常驻的两个：
+
+- `npm test` 里的 `i18n.test.js`：键集合一致、占位符一致、无空值、语言归一、缺词回退
+- `check-dom` 顺带校验 `index.html` 的 `data-i18n` 引用都能取到词
+
+255 个引用键、0 缺失。

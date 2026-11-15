@@ -18,6 +18,8 @@ const DEFAULTS = Object.freeze({
   recentFiles: [],
   lastDir: '',
   window: null, // { x, y, width, height, maximized }
+  // 界面语言；空串表示"跟系统"，由主进程在启动时归一
+  language: '',
 });
 
 function clone(v) {
@@ -65,6 +67,7 @@ class SettingsStore {
             : [],
           lastDir: typeof merged.lastDir === 'string' ? merged.lastDir : '',
           window: normalizeWindow(merged.window),
+          language: typeof merged.language === 'string' ? merged.language : '',
         };
       }
     } catch (err) {
@@ -103,6 +106,11 @@ class SettingsStore {
         break;
       case 'window':
         this.data.window = normalizeWindow(value);
+        break;
+      case 'language':
+        // 只接受两种受支持的语言；空串表示"跟系统"
+        if (value !== '' && value !== 'zh-CN' && value !== 'en-US') return false;
+        this.data.language = value;
         break;
       default:
         return false;
