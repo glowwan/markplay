@@ -25,3 +25,4 @@
 - [ ] 没有引入新的运行时依赖
 - [ ] 纯逻辑已放进可单测的模块（如 `src/media-utils.js`）并补了测试
 - [ ] 如果改了用户可见文案，README / CHANGELOG 已同步
+- [ ] 发版时三处版本号一致：`package.json`、README 顶部徽章、`CHANGELOG.md`
