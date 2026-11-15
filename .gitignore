@@ -7,3 +7,10 @@ resources/.tmp-fetch/
 *.log
 .DS_Store
 Thumbs.db
+
+# 证书与私钥：绝不入库
+*.pfx
+*.p12
+*.pem
+*.key
+*.cer

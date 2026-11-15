@@ -4,7 +4,12 @@
 
 ## [未发布]
 
-- 界面演示动图（可选）
+### 工程
+
+- 新增代码签名工具链：`tools/sign.ps1`（签名 + 自动校验 + 排查提示）、`tools/make-test-cert.ps1`（自签名测试证书）
+- `package.json` 补 `signingHashAlgorithms: sha256` 与 RFC3161 时间戳服务器
+- 新增 `npm run sign` / `npm run sign:check`
+- `docs/RELEASE.md` 按实测结果重写签名章节
 
 ## [1.6.0] - 2026-11-15
 

@@ -660,3 +660,87 @@ state.threshold = clamp(suggested, 0.02, 0.9);
 - `scenes.test.js` 增补 `filterByThreshold`（4 个）与 `suggestThreshold`（3 个），
   含一条自洽性断言：建议阈值下必须真的能命中足够数量
 
+
+## 二十一、代码签名工具链（v1.6.0 后）
+
+### 现实前提
+
+代码签名需要**花钱 + 实名认证**的证书，这一步代办不了。所以这一轮的目标不是"签出一个免警告的包"，
+而是**把除证书之外的一切都验证到位**，让拿到证书后只需要换一个路径。
+
+### 先解决"没有 Windows SDK 也能签"
+
+本机 `signtool.exe` 不在 PATH，也没有 Windows Kits。但 electron-builder 下载的
+`winCodeSign` 缓存里就带着：
+
+```
+%LOCALAPPDATA%\electron-builder\Cache\winCodeSign\winCodeSign-2.6.0\windows-10\x64\signtool.exe
+```
+
+`tools\sign.ps1` 的查找顺序正是：这个缓存 → Windows Kits → PATH。
+所以**只要跑过一次 `npm run dist`，签名工具就绪**，不用额外装 SDK。
+
+### 用自签名证书把链路跑通
+
+```powershell
+.\tools\make-test-cert.ps1        # New-SelfSignedCertificate，Code Signing EKU，RSA 3072
+.\tools\sign.ps1 -File <某个 exe> -Thumbprint <指纹>
+```
+
+实测结果：
+
+| 环节 | 结果 |
+|---|---|
+| signtool 定位 | ✅ 走缓存，未装 SDK |
+| `/f pfx /p pass` 签名 | ✅ 退出码 0 |
+| `/sha1 thumbprint` 签名 | ✅ 退出码 0 |
+| RFC3161 时间戳 | ✅ `CN=DigiCert SHA256 RSA4096 Timestamp Responder 2026 1` |
+| `Get-AuthenticodeSignature` | `Status=UnknownError`，`SignerCertificate.Subject` 正确，`TimeStamperCertificate` 非空 |
+| `signtool verify /pa` | 唯一的错是 `root certificate which is not trusted` |
+
+最后那条**正是自签名应该有的结果**——它证明签名结构与证书链都正确，只是根不在信任列表里。
+换成 CA 签发的证书后，这一条就会变成 `Status = Valid`。
+
+### 脚本的一个设计点
+
+`sign.ps1` 不是"签完就完事"，它会立刻读 `Get-AuthenticodeSignature` 并**按状态给不同结论**：
+
+- `Valid` → 打勾，顺带打印 SHA256
+- `UnknownError` + "不受信任" → 分两种情况说话：自签名属预期；买了证书还这样就列三条排查方向
+  （EKU 不是 Code Signing / 中间证书缺失 / 买成了 SSL 证书）
+- `NotSigned` → 直接 `exit 1`，不谎报成功
+
+排障提示写进脚本而不是文档，是因为出问题的人那一刻不会去翻 docs。
+
+### 时间戳为什么必须开
+
+`package.json` 里加了：
+
+```json
+"signingHashAlgorithms": ["sha256"],
+"rfc3161TimeStampServer": "http://timestamp.digicert.com"
+```
+
+没有时间戳的签名在证书过期那一刻全部失效——已经发出去的安装包会突然变成"签名无效"。
+这是很多人第一次签名时会漏掉的一项。
+
+### 证书选型（写进 docs/RELEASE.md 第 2 节）
+
+| 方案 | 成本 | 适合 |
+|---|---|---|
+| OV | $200–400/年 | 个人项目，性价比最高 |
+| EV | $300–600/年 + 硬件令牌 | 想第一次下载就少警告 |
+| Azure Trusted Signing | 按次计费 | 没有令牌、走 CI |
+| 自签名 | 免费 | **仅本机验证**，对外发布无意义 |
+
+同时写清了一件容易被误解的事：**签名不等于立刻没有 SmartScreen 警告**，
+OV 要积累下载量，EV 才历史性地更快。这不是配置问题。
+
+### 测试证书的处理
+
+`tools\make-test-cert.ps1 -Remove` 可以一键清掉。
+本轮验证完已经把证书删了，仓库里不留任何密钥材料，`%TEMP%` 下的 PFX 也一并删除。
+
+### 剩下真的只有一件事
+
+买证书 → 设两个环境变量 → `npm run dist`。命令一行都不用改。
