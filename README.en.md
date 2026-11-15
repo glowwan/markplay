@@ -72,7 +72,8 @@ The control bar sits below the video rather than floating over it — the video 
 **Markers & ranges**
 
 - **Typed markers** — six marker types `A`–`G`, each numbered independently.
-- **Marker editing** — double-click a label to rename inline; drag a timeline tick to retime; `Delete` to remove; `Ctrl+Z` / `Ctrl+Shift+Z` to undo/redo.
+- **Marker editing** — double-click a label to rename inline; drag a timeline tick to retime; `Delete` to remove; `Ctrl+Z` / `Ctrl+Shift+Z` to undo/redo. Times **snap to the nearest frame** (rate read from the source; no snapping when the rate is unknown).
+- **Backup** — `Ctrl+S` copies the marker file to a timestamped backup; the 10 most recent are kept per video.
 - **Explicit ranges** — `[` sets in, `]` sets out. Rename by double-click, click to jump to in-point, drag either end of the range bar to adjust in/out.
 - **Generate ranges** — **A/B pairing** (each A → nearest following B) or **adjacent pairing** (1-2, 3-4…, any marker type).
 - **Timeline zoom** — `Ctrl+wheel` / `Ctrl+=` `Ctrl+-` to zoom (works over the video too), `Shift+wheel` to pan, `Ctrl+0` to fit. The playhead auto-follows when it leaves the view.
@@ -108,6 +109,7 @@ The control bar sits below the video rather than floating over it — the video 
 | `Ctrl+0` | Fit timeline to the whole video |
 | `Shift+wheel` | Pan the timeline |
 | `Delete` | Delete the selected marker |
+| `Ctrl+S` | Back up the marker file (timestamped, keeps the 10 most recent) |
 | `Ctrl+Z` / `Ctrl+Shift+Z` | Undo / redo |
 | `F11` | Toggle video fullscreen (`ESC` also exits) |
 | `O` | Open a video file |

@@ -4,10 +4,21 @@
 
 ## [未发布]
 
+- 界面演示动图（可选）
+
+## [1.3.0] - 2026-11-15
+
+### 新增
+
+- **帧吸附**：打点、拖动标记刻度、拖动区间两端时，时间自动对齐到最近的帧。帧率取自 mpv 的 `container-fps`，帧率未知时不吸附。可在 `src/config.js` 用 `SNAP_TO_FRAME = false` 关闭。
+- **`Ctrl+S` 备份标记文件**：把当前视频的 `.markplay.json` 复制一份带时间戳的备份（`<视频>.markplay.json.bak-YYYYMMDD-HHmmss`），每个视频自动保留最近 10 份（`SIDECAR_BACKUP_KEEP` 可调）。菜单「文件 → 备份标记文件」同效。备份前会先把内存里的标记写盘，保证备份的是最新状态。
+
 ### 内部
 
-- 把主进程的纯逻辑抽到 `src/media-utils.js`（文件类型判定、命令行参数解析、码率估算、ffmpeg 参数拼装、concat 转义），**行为不变**，新增 16 个单元测试，总数 47 → 63。
-- 新增 `CONTRIBUTING.md`、issue 模板（bug / 功能建议）和 PR 模板。
+- 主进程的纯逻辑抽到 `src/media-utils.js`（文件类型判定、命令行参数解析、码率估算、ffmpeg 参数拼装、concat 转义），**行为不变**。
+- 新增 `src/sidecar-backup.js`（备份命名与清理，纯函数）。
+- 新增 `tests/media-utils.test.js`、`tests/sidecar-backup.test.js`、`tests/frame-snap.test.js`，测试总数 47 → 84。
+- 新增 `CONTRIBUTING.md`、`CODE_OF_CONDUCT.md`、issue 模板（bug / 功能建议）和 PR 模板。
 
 ## [1.2.1] - 2026-11-07
 

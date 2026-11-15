@@ -365,3 +365,48 @@ npm test        # 等价于 node tests/run.js，25 个用例
 - `.github/PULL_REQUEST_TEMPLATE.md`：带 `npm test` / `check:dom` 勾选项。
 
 测试总数 **47 → 63**，语法 0 失败，DOM id 无缺失。
+
+## 十七、v1.3.0：帧吸附与 Ctrl+S 备份
+
+两个小改动，都带测试。
+
+### 1. 帧吸附
+
+**为什么**：帧是视频的最小时间单位。原来拖动刻度/区间边界得到的是连续浮点时间，会落在两帧之间——
+导出的帧号要四舍五入，`-c copy` 剪辑的切点也对不上，用户看到的"00:00:10.017"其实不是一个真实存在的帧。
+
+**怎么做**：`markers.js` 里加 `snapToFrame(t)`：
+
+```js
+var fps = frameRate();                     // 从 renderer 注入的 state.fps
+if (!(fps > 0)) return v;                  // 帧率未知 → 不吸附
+return Math.round(v * fps) / fps;
+```
+
+应用于三处：`add()`（打点）、`setTime()`（拖标记刻度）、`setRangeBoundary()`（拖区间两端）。
+
+**边界取整的坑**：区间有最小宽度（原先固定 0.05s）。如果先夹紧再吸附，吸附可能把入点又推到出点之外。
+所以 `setRangeBoundary` 改成：先吸附 → 夹最小间隔 → **再向安全方向取整**（入点 `floor`、出点 `ceil`），
+并保证取整后仍不越界、不反向。最小间隔也改成 `max(0.05, 一帧)`，24fps 下一帧 0.0417s，比 0.05 还短。
+
+**开关**：`config.SNAP_TO_FRAME = false` 可关闭；帧率未知（还没开始播放）时自动不吸附。
+
+### 2. Ctrl+S 备份标记文件
+
+**为什么**：sidecar 只有一份，误删标记、写坏文件、或者"想回到十分钟前的状态"都没有退路。
+
+**怎么做**：
+- 菜单「文件 → 备份标记文件」带 `CmdOrCtrl+S` 加速键——**放在菜单而不是渲染进程 keydown**，因为菜单加速键在输入框聚焦时也生效（输入框里按 Ctrl+S 同样能备份）。
+- 菜单点击发 `player-event {type:'backup-sidecar'}`，渲染进程收到后**先 `saveSidecar()` 写盘，再调 IPC 复制**——顺序反了会备份到旧状态。
+- 主进程 `backup-sidecar`：`copyFile` 到 `<sidecar>.bak-YYYYMMDD-HHmmss`，然后清理超出 `SIDECAR_BACKUP_KEEP`（默认 10）的旧备份。
+- 清理只处理**同一 sidecar 的**备份（`isBackupOf` 前缀匹配 + basename 精确），不会误删同目录其它视频的备份或其它文件。
+- 时间戳固定 `YYYYMMDD-HHmmss` 宽度，因此字符串排序 = 时间排序，不用解析日期。
+
+### 测试
+
+| 文件 | 覆盖 |
+|---|---|
+| `tests/sidecar-backup.test.js`（10 个） | 时间戳格式与固定宽度、路径生成、前缀匹配不误伤（`a.mp4` vs `aa.mp4`）、保留策略、不修改入参 |
+| `tests/frame-snap.test.js`（11 个） | 30fps/23.976fps 吸附、帧率未知不吸附、关闭开关、边界夹紧后仍对齐帧、顶到末尾退帧网格、区间入点越界 |
+
+总数 **63 → 84**，全过；语法 0 失败；DOM id 无缺失。

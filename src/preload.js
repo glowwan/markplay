@@ -180,6 +180,14 @@ contextBridge.exposeInMainWorld('markplay', {
   getRecent: () => ipcRenderer.invoke('recent-list'),
 
   /**
+   * 把标记文件复制一份带时间戳的备份（`<视频>.markplay.json.bak-YYYYMMDD-HHmmss`），
+   * 并自动清理超出保留数量的旧备份。
+   * @param {string} sidecarPath 标记文件的完整路径
+   * @returns {Promise<{ok: boolean, path?: string, removed?: number, error?: string}>}
+   */
+  backupSidecar: (sidecarPath) => ipcRenderer.invoke('backup-sidecar', sidecarPath),
+
+  /**
    * 把渲染进程的报错写进主进程日志（window.onerror / unhandledrejection）。
    * @param {'info'|'warn'|'error'} level
    * @param {string} message

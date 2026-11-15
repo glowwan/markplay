@@ -91,7 +91,8 @@
       if (state.looping) syncLoopWithSelection();
       else updateLoopUI();
     },
-    timeProvider: function () { return state.currentTime; }
+    timeProvider: function () { return state.currentTime; },
+    fpsProvider: function () { return state.fps; }
   });
   Exporter.init({
     getVideoPath: function () { return state.videoPath; },
@@ -197,6 +198,43 @@
     }
     Exporter.refreshClipSelectors();
     UI.toast('已按相邻标记生成 ' + n + ' 个区间', { kind: 'success' });
+  }
+
+  // ---------- 标记文件备份（Ctrl+S） ----------
+  var backingUp = false;
+
+  /**
+   * 备份当前视频的标记文件。
+   * 先把内存里的标记写盘，再复制一份带时间戳的备份——否则备份到的可能是上一次的状态。
+   */
+  function backupSidecar() {
+    if (!requireVideo()) return;
+    if (backingUp) return;
+    var sidecar = Markers.sidecarPath();
+    if (!sidecar) return;
+
+    backingUp = true;
+    Markers.saveSidecar()
+      .then(function () { return window.markplay.backupSidecar(sidecar); })
+      .then(function (r) {
+        if (!r || !r.ok) {
+          status('备份失败：' + ((r && r.error) || '未知错误'), 'error');
+          return;
+        }
+        var name = basename(r.path);
+        var extra = r.removed > 0 ? '（已清理 ' + r.removed + ' 个旧备份）' : '';
+        status('已备份标记文件：' + name + extra, 'ok');
+        UI.toast('已备份：' + name + extra, {
+          kind: 'success',
+          actionLabel: '在文件夹中显示',
+          onAction: function () { window.markplay.showItemInFolder(r.path); },
+        });
+      })
+      .catch(function (err) {
+        status('备份失败：' + (err && err.message ? err.message : String(err)), 'error');
+        UI.toast('备份失败：' + (err && err.message ? err.message : String(err)), { kind: 'error' });
+      })
+      .then(function () { backingUp = false; });
   }
 
   // ---------- A–B 循环 ----------
@@ -740,6 +778,10 @@
           break;
         case 'subtitle-added':
           status('字幕已加载：' + basename(ev.path || ''), 'ok');
+          break;
+        case 'backup-sidecar':
+          // 菜单「文件 → 备份标记文件」(Ctrl+S) 触发
+          backupSidecar();
           break;
         case 'surface-dragover':
           // 文件正悬停在视频画面上：提示松开以打开

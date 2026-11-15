@@ -30,6 +30,7 @@ const {
   reencodeArgs,
   toConcatLine,
 } = require('./media-utils');
+const { backupPathFor, isBackupOf, pickBackupsToDelete } = require('./sidecar-backup');
 
 // ---------- 常量 ----------
 
@@ -1150,6 +1151,43 @@ function registerIpc() {
   ));
   ipcMain.handle('recent-list', () => (settings ? settings.get('recentFiles') : []));
 
+  // ---------- IPC：标记文件备份 ----------
+
+  /**
+   * 把 sidecar 复制一份带时间戳的备份，并清理超出保留数量的旧备份。
+   * 渲染进程负责先把内存里的标记写盘，再调用这里。
+   */
+  ipcMain.handle('backup-sidecar', async (event, sidecarPath) => {
+    if (typeof sidecarPath !== 'string' || sidecarPath.length === 0) {
+      throw new Error('备份路径无效');
+    }
+    if (!fs.existsSync(sidecarPath)) {
+      return { ok: false, error: '标记文件还不存在（这个视频还没打过点）' };
+    }
+
+    const dest = backupPathFor(sidecarPath, new Date());
+    await fsp.copyFile(sidecarPath, dest);
+
+    // 清理旧备份：只处理同一 sidecar 的备份，别动别的文件
+    const dir = path.dirname(sidecarPath);
+    let removed = 0;
+    try {
+      const keep = config.SIDECAR_BACKUP_KEEP || 10;
+      const names = fs.readdirSync(dir).filter((n) => isBackupOf(n, sidecarPath));
+      for (const name of pickBackupsToDelete(names, keep)) {
+        try {
+          fs.unlinkSync(path.join(dir, name));
+          removed += 1;
+        } catch { /* 单个删不掉不影响备份本身 */ }
+      }
+    } catch (err) {
+      logWarn('[backup] 清理旧备份失败:', err.message);
+    }
+
+    logInfo('[backup] sidecar', dest, 'removed', removed);
+    return { ok: true, path: dest, removed };
+  });
+
   // ---------- IPC：ffmpeg 剪辑 ----------
 
   ipcMain.handle('run-clip', async (event, opts) => {
@@ -1435,6 +1473,17 @@ function buildMenu() {
         { label: '打开视频…', accelerator: 'CmdOrCtrl+O', click: pickAndOpenDialog },
         { label: '最近打开', submenu: buildRecentSubmenu() },
         { type: 'separator' },
+        {
+          label: '备份标记文件',
+          // 放在菜单里而不是渲染进程 keydown：菜单加速键在输入框聚焦时也生效
+          accelerator: 'CmdOrCtrl+S',
+          enabled: !!currentVideoPath,
+          click: () => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('player-event', { type: 'backup-sidecar' });
+            }
+          },
+        },
         {
           label: '在文件夹中显示当前视频',
           enabled: !!currentVideoPath,

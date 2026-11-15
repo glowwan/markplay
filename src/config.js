@@ -79,6 +79,17 @@ const HISTORY_LIMIT = 50;
  */
 const DEFAULT_FPS = 25;
 
+/**
+ * 打点 / 拖区间边界时，时间是否吸附到最近的帧。
+ *
+ * 帧是视频的最小时间单位，落在半帧上的切点没有意义；吸附后导出 CSV/EDL 的
+ * 帧号与剪辑切点也能对上。帧率未知（还没开始播放）时自动不吸附。
+ */
+const SNAP_TO_FRAME = true;
+
+/** 每个视频最多保留多少个 Ctrl+S 备份（超出后删最旧的） */
+const SIDECAR_BACKUP_KEEP = 10;
+
 module.exports = {
   PIPE_NAME,
   SCRUB_SENSITIVITY,
@@ -93,6 +104,8 @@ module.exports = {
   SURFACE_APPLY_DPI_SCALE,
   HISTORY_LIMIT,
   DEFAULT_FPS,
+  SNAP_TO_FRAME,
+  SIDECAR_BACKUP_KEEP,
   REV2X_INTERVAL_MS,
   REV2X_STEP,
 };

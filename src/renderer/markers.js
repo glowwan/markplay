@@ -33,6 +33,7 @@ var Markers = (function () {
   var onSeek = function () {};          // 跳转回调（renderer 注入）
   var onChange = function () {};        // 变更回调（renderer 注入，如刷新剪辑下拉）
   var timeProvider = function () { return 0; }; // 当前播放时间（renderer 注入）
+  var fpsProvider = function () { return 0; };  // 当前素材帧率（renderer 注入，0=未知）
 
   function colors() { return window.markplay.config.MARKER_COLORS; }
 
@@ -224,6 +225,37 @@ var Markers = (function () {
     pushHistory();
   }
 
+  // ---- 帧吸附 ----
+
+  /**
+   * 把时间吸附到最近的帧边界。
+   *
+   * 帧是视频的最小时间单位，落在两帧之间的切点没意义；吸附后导出的帧号、
+   * 剪辑切点都能对上。帧率未知（还没播放过）或关闭了 SNAP_TO_FRAME 时原样返回。
+   *
+   * @param {number} t 秒
+   * @returns {number} 吸附后的秒数
+   */
+  function snapToFrame(t) {
+    var v = Number(t);
+    if (!isFinite(v)) return v;
+    var cfg = window.markplay && window.markplay.config;
+    if (cfg && cfg.SNAP_TO_FRAME === false) return v;
+    var fps = frameRate();
+    if (!(fps > 0)) return v;
+    var snapped = Math.round(v * fps) / fps;
+    // 吸附不能把时间推出 [0, duration]
+    if (snapped < 0) snapped = 0;
+    if (duration > 0 && snapped > duration) snapped = duration;
+    return snapped;
+  }
+
+  /** 当前帧率（由 renderer 注入；0 表示未知） */
+  function frameRate() {
+    var fps = fpsProvider();
+    return (typeof fps === 'number' && isFinite(fps) && fps > 0) ? fps : 0;
+  }
+
   // ---- 数据操作 ----
 
   // 在当前播放时间打一个 kind 点（kind: 'A'|'B'|'C'|'D'|'F'|'G'；E 留给导出快捷键）
@@ -233,6 +265,7 @@ var Markers = (function () {
     if (!videoPath) return null; // 未打开视频时拒绝打点
     var t = Math.max(0, timeProvider());
     if (duration > 0) t = Math.min(t, duration);
+    t = snapToFrame(t);
     pushHistory();
     counters[kind] += 1;
     var m = {
@@ -278,7 +311,7 @@ var Markers = (function () {
   function setTime(id, t, opts) {
     var m = getById(id);
     if (!m || typeof t !== 'number' || !isFinite(t)) return false;
-    m.time = clamp(t, 0, duration > 0 ? duration : t);
+    m.time = snapToFrame(clamp(t, 0, duration > 0 ? duration : t));
     if (!opts || opts.render !== false) {
       renderTimeline();
       renderList();
@@ -350,13 +383,31 @@ var Markers = (function () {
     var r = getRangeById(id);
     if (!r || typeof t !== 'number' || !isFinite(t)) return false;
     var limit = duration > 0 ? duration : Number.MAX_SAFE_INTEGER;
-    var v = clamp(t, 0, limit);
-    var MIN = 0.05;
+    var fps = frameRate();
+    var frameDur = fps > 0 ? 1 / fps : 0;
+    // 区间最短宽度：至少 0.05s，且不小于一帧
+    var minGap = Math.max(0.05, frameDur);
+    var v = snapToFrame(clamp(t, 0, limit));
+
     if (edge === 'in') {
-      r.in = Math.max(0, Math.min(v, r.out - MIN));
+      v = Math.min(v, r.out - minGap);
+      if (v < 0) v = 0;
+      // 向下取整到帧，保证严格小于出点（取整后可能又跨过去）
+      if (fps > 0) v = Math.floor(v * fps + 1e-6) / fps;
+      if (v < 0) v = 0;
+      r.in = v;
     } else {
-      r.out = Math.min(limit, Math.max(v, r.in + MIN));
+      v = Math.max(v, r.in + minGap);
+      // 向上取整到帧，保证严格大于入点
+      if (fps > 0) v = Math.ceil(v * fps - 1e-6) / fps;
+      if (v > limit) {
+        // 顶到视频末尾时退到帧网格上，避免出现非整帧的末点
+        v = fps > 0 ? Math.floor(limit * fps) / fps : limit;
+        if (v < r.in + minGap) v = Math.min(limit, r.in + minGap);
+      }
+      r.out = v;
     }
+
     if (!opts || opts.render !== false) {
       renderRanges();
       try { onChange(); } catch (e) { /* 忽略 */ }
@@ -961,6 +1012,7 @@ var Markers = (function () {
     if (typeof opts.onSeek === 'function') onSeek = opts.onSeek;
     if (typeof opts.onChange === 'function') onChange = opts.onChange;
     if (typeof opts.timeProvider === 'function') timeProvider = opts.timeProvider;
+    if (typeof opts.fpsProvider === 'function') fpsProvider = opts.fpsProvider;
     bindListScroll();
     // 窗口/侧栏高度变化后重绘一次，避免虚拟列表停留在旧的"可视行数"
     if (typeof window.addEventListener === 'function') {
@@ -1003,8 +1055,11 @@ var Markers = (function () {
     renderList: renderList,
     loadSidecar: loadSidecar,
     saveSidecar: saveSidecar,
+    sidecarPath: sidecarPath,
     setDuration: function (d) { if (typeof d === 'number' && d >= 0) { duration = d; renderTimeline(); renderRanges(); } },
     setTimeProvider: function (fn) { if (typeof fn === 'function') timeProvider = fn; },
+    setFpsProvider: function (fn) { if (typeof fn === 'function') fpsProvider = fn; },
+    snapToFrame: snapToFrame,
     count: function () { return items.length; },
     fmtTc: fmtTc // 导出时间码格式化，供其它模块复用
   };
