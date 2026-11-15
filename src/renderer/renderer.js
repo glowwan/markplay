@@ -1104,21 +1104,6 @@
           else if (ev.action === 'out') zoomStep(false);
           else zoomFit();
           break;
-        case 'overlay-key':
-          // 悬浮层拿到焦点后把按键转回这里，走同一套快捷键逻辑
-          if (ev && (ev.code || ev.key)) {
-            handleKeydown({
-              key: ev.key || '',
-              code: ev.code || '',
-              ctrlKey: !!ev.ctrlKey,
-              shiftKey: !!ev.shiftKey,
-              altKey: !!ev.altKey,
-              metaKey: !!ev.metaKey,
-              target: document.body,
-              preventDefault: function () {},
-            });
-          }
-          break;
         case 'wheel':
           // 视频画面上的 Ctrl/Shift+滚轮（触摸板同样适用）：缩放 / 平移
           if (ev.ctrlKey) {
@@ -1153,8 +1138,8 @@
     return tag === 'INPUT' || tag === 'TEXTAREA';
   }
 
-  /** 统一处理键盘事件。overlay 转发过来的按键也走这里，保证同一套快捷键逻辑。 */
-  function handleKeydown(e) {
+  function wireKeyboard() {
+    document.addEventListener('keydown', function (e) {
       // [ ] 建区间：用物理键位 code 判断，避免中文输入法/键盘布局把 e.key
       // 变成 "【" 或 "Process"；焦点在 <select> 上也生效（否则点过区间下拉后快捷键就失效），
       // 但在输入框里仍然让 [ ] 正常打字。
@@ -1239,10 +1224,7 @@
         }
         default: break;
       }
-  }
-
-  function wireKeyboard() {
-    document.addEventListener('keydown', handleKeydown);
+    });
   }
 
   // ---------- 按钮 / 音量 ----------
