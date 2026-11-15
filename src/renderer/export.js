@@ -82,6 +82,28 @@ var Exporter = (function () {
     return (typeof v === 'number' && isFinite(v) && v > 0) ? v : 0;
   }
 
+  // ---- 区间显示名 ----
+
+  /**
+   * 取区间用于显示/导出的名字。
+   *
+   * 区间默认名（"区间 1"）是创建时按当时界面语言写进 sidecar 的，
+   * 切到英文后必须重新按当前语言生成，否则会一直显示中文。
+   * 用户手动改过的名字原样保留。
+   *
+   * @param {object} r 区间对象
+   * @param {number} [fallbackIndex] 名字缺失且无序号时用的默认序号（1 起）
+   * @returns {string}
+   */
+  function rangeDisplayName(r, fallbackIndex) {
+    if (typeof Markers !== 'undefined' && Markers.displayRangeName) {
+      return Markers.displayRangeName(r, fallbackIndex);
+    }
+    // Markers 不可用时的兜底（理论上不会发生）
+    if (r && r.name) return String(r.name);
+    return I18n.t('ui.rangeName', { n: fallbackIndex || 1 });
+  }
+
   // ---- 片段区间计算 ----
 
   /**
@@ -143,7 +165,7 @@ var Exporter = (function () {
     (ranges || []).forEach(function (r, i) {
       lines.push([
         i + 1,
-        csvCell(r.name || I18n.t('ui.rangeName', { n: i + 1 })),
+        csvCell(rangeDisplayName(r, i + 1)),
         r.in.toFixed(3),
         tc(r.in),
         Math.round(r.in * rate),
@@ -200,7 +222,7 @@ var Exporter = (function () {
         tcFrames(r.in, rate) + ' ' + tcFrames(r.out, rate) + ' ' +
         tcFrames(recCursor, rate) + ' ' + tcFrames(recOut, rate)
       );
-      lines.push('* FROM CLIP NAME: ' + (r.name || I18n.t('ui.rangeName', { n: i + 1 })));
+      lines.push('* FROM CLIP NAME: ' + rangeDisplayName(r, i + 1));
       recCursor = recOut;
     });
     return lines.join('\n') + '\n';
@@ -226,7 +248,7 @@ var Exporter = (function () {
       }),
       ranges: (ranges || []).map(function (r, i) {
         return {
-          name: r.name || I18n.t('ui.rangeName', { n: i + 1 }),
+          name: rangeDisplayName(r, i + 1),
           in: r.in,
           out: r.out,
           inTc: tc(r.in),
@@ -328,7 +350,7 @@ var Exporter = (function () {
     ranges.forEach(function (r, i) {
       var opt = document.createElement('option');
       opt.value = r.id;
-      opt.textContent = (r.name || I18n.t('ui.rangeName', { n: i + 1 })) + '  ' + tc(r.in) + ' → ' + tc(r.out);
+      opt.textContent = rangeDisplayName(r, i + 1) + '  ' + tc(r.in) + ' → ' + tc(r.out);
       sel.appendChild(opt);
     });
     if (ids.indexOf(prev) >= 0) sel.value = prev;
@@ -425,7 +447,9 @@ var Exporter = (function () {
       clipping = true;
       setClipBusy(true);
       setProgress(0);
-      status(I18n.t('status.clipInProgress', { name: range.name || I18n.t('clipLabels.clip') }));
+      status(I18n.t('status.clipInProgress', {
+      name: range.name ? rangeDisplayName(range) : I18n.t('clipLabels.clip'),
+    }));
       return runOne({
         input: videoPath,
         ss: range.in,
@@ -557,7 +581,7 @@ var Exporter = (function () {
           batchState.index = i;
           setProgress(Math.round((i / ranges.length) * 100));
           status(I18n.t('status.batchClipProgress', {
-                     i: i + 1, n: ranges.length, name: range.name || I18n.t('ui.rangeName', { n: i + 1 }),
+                     i: i + 1, n: ranges.length, name: rangeDisplayName(range, i + 1),
                    }));
           var name = base + '_clip_' + String(i + 1).padStart(2, '0') + '.mp4';
           lastOutput = joinPath(dir, name);

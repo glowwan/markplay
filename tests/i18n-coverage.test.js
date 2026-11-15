@@ -169,3 +169,65 @@ test('渲染进程与主进程源码里没有硬编码中文文案', () => {
   }
   assert.deepEqual(bad, [], '这些中文硬编码在源码里，英文界面会漏出来：\n' + bad.join('\n'));
 });
+
+test('区间默认名（存的是中文）在英文界面会按当前语言重算', () => {
+  // 区间名是创建时按当时语言写进 sidecar 的，切语言后必须重新生成，
+  // 否则英文界面里会一直显示「区间 1」。用 vm 真跑一遍 markers.js。
+  const vm = require('node:vm');
+  const { createTranslator, normalize } = require('../src/i18n.js');
+  const dictZh = require('../src/locales/zh-CN.js');
+  const dictEn = require('../src/locales/en-US.js');
+  const DICTS = { 'zh-CN': dictZh, 'en-US': dictEn };
+
+  const mkEl = () => ({
+    className: '', textContent: '', title: '', style: {}, dataset: {}, value: '', children: [],
+    appendChild(c) { this.children.push(c); return c; },
+    addEventListener() {}, querySelectorAll: () => [],
+    set innerHTML(v) { this.children.length = 0; },
+    get innerHTML() { return ''; },
+  });
+
+  function loadMarkers(lang) {
+    const code = normalize(lang);
+    const translator = createTranslator(code, DICTS[code], dictZh);
+    const sandbox = {
+      window: {
+        markplay: {
+          t: (k, p) => translator(k, p),
+          getLanguage: () => code,
+          config: { MARKER_COLORS: { A: '#f00' }, HISTORY_LIMIT: 50 },
+          writeJsonFile: async () => {},
+          readJsonFile: async () => null,
+        },
+      },
+      document: {
+        documentElement: { lang: '' },
+        getElementById: () => null,
+        createElement: mkEl,
+        querySelectorAll: () => [],
+      },
+      console,
+    };
+    const ctx = vm.createContext(sandbox);
+    vm.runInContext(fs.readFileSync(path.join(ROOT, 'src/renderer/i18n-apply.js'), 'utf8'), ctx, { filename: 'i18n-apply.js' });
+    vm.runInContext(fs.readFileSync(path.join(ROOT, 'src/renderer/markers.js'), 'utf8'), ctx, { filename: 'markers.js' });
+    return ctx.Markers;
+  }
+
+  const zhM = loadMarkers('zh-CN');
+  const enM = loadMarkers('en-US');
+
+  assert.equal(typeof enM.displayRangeName, 'function', 'markers.js 应导出 displayRangeName');
+
+  // 中文存的默认名 -> 英文界面显示英文
+  assert.equal(enM.displayRangeName({ name: '区间 1' }), 'Range 1');
+  assert.equal(enM.displayRangeName({ name: '区间 12' }), 'Range 12');
+  assert.equal(zhM.displayRangeName({ name: 'Range 3' }), '区间 3');
+
+  // 用户手改的名字原样保留
+  assert.equal(enM.displayRangeName({ name: '开场' }), '开场');
+  assert.equal(enM.displayRangeName({ name: 'Intro' }), 'Intro');
+
+  // 空名按序号兜底
+  assert.equal(enM.displayRangeName({ name: '' }, 4), 'Range 4');
+});

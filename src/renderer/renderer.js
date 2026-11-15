@@ -333,7 +333,7 @@
     if (state.looping && range) {
       var n = rangeIndex(range);
       btn.textContent = n ? ('A–B ' + n) : 'A–B';
-      btn.title = I18n.t('ui.loopActiveTitle', { name: range.name });
+      btn.title = I18n.t('ui.loopActiveTitle', { name: Markers.displayRangeName(range) });
     } else {
       btn.textContent = 'A–B';
       btn.title = I18n.t('ui.loopDesc');
@@ -362,7 +362,11 @@
       state.looping = true;
       loopRangeId = range.id;
       updateLoopUI();
-      status(I18n.t('status.loopOn', { name: range.name, from: Exporter.tc(range.in), to: Exporter.tc(range.out) }));
+      status(I18n.t('status.loopOn', {
+        name: Markers.displayRangeName(range),
+        from: Exporter.tc(range.in),
+        to: Exporter.tc(range.out),
+      }));
 
     }).catch(function (err) {
       state.looping = false;

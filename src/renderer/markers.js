@@ -867,6 +867,28 @@ var Markers = (function () {
   }
 
   // ---- 渲染：区间 ----
+
+  /**
+   * 自动生成的区间名（\"区间 1\" / \"Range 1\"）。
+   * 中文名会被写进 sidecar，切换语言后必须重新按当前语言生成，
+   * 否则英文界面里会一直显示「区间 1」。
+   */
+  var AUTO_RANGE_NAME = /^(?:区间|Range)\s*(\d+)$/;
+
+  /**
+   * 取一个区间用于显示的的名字。
+   * 自动名按当前语言重算；用户手改过的名字原样返回。
+   * @param {object} r 区间
+   * @param {number} [fallbackIndex] 名字缺失时用的序号（1 起）
+   * @returns {string}
+   */
+  function displayRangeName(r, fallbackIndex) {
+    var raw = r && r.name != null ? String(r.name) : '';
+    var m = AUTO_RANGE_NAME.exec(raw);
+    if (m) return I18n.t('ui.rangeName', { n: Number(m[1]) });
+    if (!raw) return I18n.t('ui.rangeName', { n: fallbackIndex || 1 });
+    return raw;
+  }
   /**
    * 区间条两端的拖拽手柄：按住左右拖，直接改 in/out。
    * 拖动中只更新 bar 的几何，松手才整体重绘 + 落盘。
@@ -898,7 +920,7 @@ var Markers = (function () {
           bar.style.left = (TimelineView.toRatio(s) * 100) + '%';
           bar.style.width = Math.max(0.2, (TimelineView.toRatio(en) - TimelineView.toRatio(s)) * 100) + '%';
         }
-        bar.title = r.name + '  ' + fmtTc(r.in) + ' → ' + fmtTc(r.out);
+        bar.title = displayRangeName(r) + '  ' + fmtTc(r.in) + ' → ' + fmtTc(r.out);
       }
 
       function onUp() {
@@ -935,7 +957,7 @@ var Markers = (function () {
 
     var name = document.createElement('span');
     name.className = 'range-name';
-    name.textContent = r.name;
+    name.textContent = displayRangeName(r);
     name.title = I18n.t('ui.renameHint');
     name.addEventListener('dblclick', function (e) {
       e.stopPropagation();
@@ -1004,7 +1026,7 @@ var Markers = (function () {
           bar.style.left = (TimelineView.toRatio(s) * 100) + '%';
           bar.style.width = Math.max(0.2, (TimelineView.toRatio(e2) - TimelineView.toRatio(s)) * 100) + '%';
         }
-        bar.title = r.name + '  ' + fmtTc(r.in) + ' → ' + fmtTc(r.out);
+        bar.title = displayRangeName(r) + '  ' + fmtTc(r.in) + ' → ' + fmtTc(r.out);
       }
 
       function onUp() {
@@ -1061,7 +1083,7 @@ var Markers = (function () {
       bar.style.left = (TimelineView.toRatio(s) * 100) + '%';
       bar.style.width = Math.max(0.2, (TimelineView.toRatio(e) - TimelineView.toRatio(s)) * 100) + '%';
       bar.style.background = r.color;
-      bar.title = r.name + '  ' + fmtTc(r.in) + ' → ' + fmtTc(r.out);
+      bar.title = displayRangeName(r) + '  ' + fmtTc(r.in) + ' → ' + fmtTc(r.out);
       // 本体拖拽 = 整段平移；单击（位移 < 4px）= 跳到入点
       attachRangeDrag(bar, r);
 
@@ -1081,7 +1103,7 @@ var Markers = (function () {
     var input = document.createElement('input');
     input.type = 'text';
     input.className = 'rename-input';
-    input.value = r.name;
+    input.value = displayRangeName(r);
     input.maxLength = 60;
     li.replaceChild(input, nameEl);
     input.focus();
@@ -1095,9 +1117,9 @@ var Markers = (function () {
       if (input.parentNode) input.parentNode.replaceChild(nameEl, input);
       if (commit) {
         var ok = renameRange(r.id, value);
-        if (!ok) nameEl.textContent = r.name;
+        if (!ok) nameEl.textContent = displayRangeName(r);
       } else {
-        nameEl.textContent = r.name;
+        nameEl.textContent = displayRangeName(r);
       }
     }
 
@@ -1243,6 +1265,7 @@ var Markers = (function () {
     addRange: addRange,
     removeRange: removeRange,
     setRangeBoundary: setRangeBoundary,
+    displayRangeName: displayRangeName,
     beginEdit: beginEdit,
     renameRange: renameRange,
     getRangeById: getRangeById,
