@@ -52,9 +52,11 @@ MarkPlay 把这三步做成了一套连贯的手势和快捷键：
 
 ## 界面
 
-> 想补演示动图？拍什么、怎么录、怎么压到 5MB 以内，见 [docs/images/README.md](docs/images/README.md)。
+![MarkPlay 操作演示](docs/images/demo.gif)
 
 侧栏从上到下依次是：**标记** → **区间** → **剪辑** → **导出**。
+
+> 想补更多演示动图？拍什么、怎么录、怎么压到 5MB 以内，见 [docs/images/README.md](docs/images/README.md)。
 
 播放控制条在视频下方（因为视频画面是 mpv 的原生子窗口，HTML 控件无法叠加在画面上，详见[已知限制](#已知限制)）。
 

@@ -52,6 +52,8 @@ MarkPlay turns those three steps into one continuous flow of gestures and shortc
 
 ## Interface
 
+![MarkPlay in action](docs/images/demo.gif)
+
 Sidebar panels, top to bottom: **Markers** → **Ranges** → **Clip** → **Export**.
 
 The control bar sits below the video rather than floating over it — the video surface is mpv's native child window, which HTML can't overlay (see [Known limitations](#known-limitations)).
