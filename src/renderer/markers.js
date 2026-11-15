@@ -302,6 +302,99 @@ var Markers = (function () {
     return true;
   }
 
+  // ---- 批量重命名 ----
+
+  /**
+   * 拼一个批量重命名后的名称（纯函数，便于单测）。
+   *
+   * @param {string} oldLabel 原名称
+   * @param {string} kind 标记类型 A–G
+   * @param {number} seq 该类型内的时序序号（1 起）；不重编号时可传 0
+   * @param {{prefix?: string, suffix?: string, renumber?: boolean}} opts
+   * @returns {string} 最长 40 字符
+   */
+  function composeBatchLabel(oldLabel, kind, seq, opts) {
+    var o = opts || {};
+    var prefix = String(o.prefix == null ? '' : o.prefix);
+    var suffix = String(o.suffix == null ? '' : o.suffix);
+    var core;
+    if (o.renumber) {
+      var n = Number(seq);
+      // 与 add() 生成的 A1 / A2 保持同一种写法，不补零，避免两套命名规则
+      core = String(kind || '') + String(n > 0 ? n : 1);
+    } else {
+      core = String(oldLabel == null ? '' : oldLabel);
+    }
+    return (prefix + core + suffix).slice(0, 40);
+  }
+
+  /**
+   * 批量重命名标记。
+   *
+   * @param {{scope?: string, prefix?: string, suffix?: string, renumber?: boolean}} opts
+   *   scope: 'all' 或某个类型（'A'…'G'）
+   *   renumber: 勾选后名称 = 前缀 + 类型 + 两位时序序号 + 后缀，序号按类型内部的时间顺序
+   * @returns {number} 实际改动的条数；0 表示没有变化（不产生撤销点）
+   */
+  function batchRename(opts) {
+    var o = opts || {};
+    if (!videoPath) return 0;
+
+    var scope = String(o.scope || 'all').toUpperCase();
+    var prefix = String(o.prefix == null ? '' : o.prefix);
+    var suffix = String(o.suffix == null ? '' : o.suffix);
+    var renumber = o.renumber === true;
+
+    // 什么都没填等于没操作，避免误触
+    if (!prefix && !suffix && !renumber) return 0;
+    if (scope !== 'ALL' && 'ABCDFG'.indexOf(scope) < 0) return 0;
+
+    var targets = items.filter(function (m) {
+      return scope === 'ALL' || m.kind === scope;
+    });
+    if (!targets.length) return 0;
+
+    // 时序序号按"类型内部"排，避免出现 A1 B2 C3 这种混排
+    var seqById = {};
+    if (renumber) {
+      var perKind = {};
+      targets.slice()
+        .sort(function (a, b) { return a.time - b.time; })
+        .forEach(function (m) {
+          perKind[m.kind] = (perKind[m.kind] || 0) + 1;
+          seqById[m.id] = perKind[m.kind];
+        });
+    }
+
+    pushHistory();
+    var changed = 0;
+    targets.forEach(function (m) {
+      var next = composeBatchLabel(m.label, m.kind, seqById[m.id], {
+        prefix: prefix, suffix: suffix, renumber: renumber,
+      });
+      if (next && next !== m.label) {
+        m.label = next;
+        changed += 1;
+      }
+    });
+
+    if (!changed) {
+      undoStack.pop(); // 没改动就不留空撤销点
+      return 0;
+    }
+
+    // 重编号后把计数器推到序号最大值，后续打点从正确的号继续
+    if (renumber) {
+      Object.keys(seqById).forEach(function (id) {
+        var m = getById(id);
+        if (m && seqById[id] > counters[m.kind]) counters[m.kind] = seqById[id];
+      });
+    }
+
+    afterChange(true);
+    return changed;
+  }
+
   /**
    * 直接设置标记时间（拖动刻度用）。
    * @param {string} id
@@ -407,6 +500,38 @@ var Markers = (function () {
       }
       r.out = v;
     }
+
+    if (!opts || opts.render !== false) {
+      renderRanges();
+      try { onChange(); } catch (e) { /* 忽略 */ }
+    }
+    return true;
+  }
+
+  /**
+   * 整体平移区间（拖动区间条本体），宽度保持不变。
+   *
+   * 与 setRangeBoundary 的区别：那个改一端、会重新夹最小间隔；这个两端一起动，
+   * 所以只需保证不越界。
+   *
+   * @param {string} id
+   * @param {number} newIn 目标入点（秒）
+   * @param {{render?: boolean}} [opts]
+   * @returns {boolean}
+   */
+  function moveRangeTo(id, newIn, opts) {
+    var r = getRangeById(id);
+    if (!r || typeof newIn !== 'number' || !isFinite(newIn)) return false;
+    var limit = duration > 0 ? duration : Number.MAX_SAFE_INTEGER;
+    var width = r.out - r.in;
+    if (!(width > 0)) return false;
+
+    // 宽度比整段视频还长时只能贴住 0
+    var maxIn = Math.max(0, limit - width);
+    var inT = snapToFrame(clamp(newIn, 0, maxIn));
+    if (inT < 0) inT = 0;
+    r.in = inT;
+    r.out = inT + width;
 
     if (!opts || opts.render !== false) {
       renderRanges();
@@ -821,6 +946,68 @@ var Markers = (function () {
     return li;
   }
 
+  /**
+   * 区间条本体拖拽 = 整段平移（宽度不变）。
+   * 位移小于 4px 视为单击（跳到入点），避免手抖把整段拖走。
+   */
+  function attachRangeDrag(bar, r) {
+    bar.addEventListener('pointerdown', function (e) {
+      if (e.button !== 0) return;
+      // 手柄自己会处理，别和边缘拖拽打架
+      if (e.target && e.target.classList && e.target.classList.contains('range-handle')) return;
+      var tl = document.getElementById('timeline');
+      if (!tl) return;
+
+      e.stopPropagation();
+      e.preventDefault();
+
+      var rect = tl.getBoundingClientRect();
+      var widthPx = Math.max(1, rect.width);
+      var view = TimelineView.getState();
+      var span = view.end - view.start;
+      var startX = e.clientX;
+      var startIn = r.in;
+      var moved = false;
+      var began = false;
+
+      function onMove(ev) {
+        var dx = ev.clientX - startX;
+        if (!moved && Math.abs(dx) > 4) moved = true;
+        if (!moved) return;
+        if (!began) { beginEdit(); began = true; }
+
+        var deltaSec = (dx / widthPx) * span;
+        moveRangeTo(r.id, startIn + deltaSec, { render: false });
+
+        // 只更新几何，重绘留到松手
+        var s = Math.max(r.in, view.start);
+        var e2 = Math.min(r.out, view.end);
+        if (e2 > s) {
+          bar.style.left = (TimelineView.toRatio(s) * 100) + '%';
+          bar.style.width = Math.max(0.2, (TimelineView.toRatio(e2) - TimelineView.toRatio(s)) * 100) + '%';
+        }
+        bar.title = r.name + '  ' + fmtTc(r.in) + ' → ' + fmtTc(r.out);
+      }
+
+      function onUp() {
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+        window.removeEventListener('pointercancel', onUp);
+        if (moved) {
+          renderRanges();
+          saveSidecar();
+          try { onChange(); } catch (err) { /* 忽略 */ }
+        } else {
+          onSeek(r.in);
+        }
+      }
+
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+      window.addEventListener('pointercancel', onUp);
+    });
+  }
+
   function renderRanges() {
     var ul = document.getElementById('range-list');
     var sorted = getRanges();
@@ -854,10 +1041,8 @@ var Markers = (function () {
       bar.style.width = Math.max(0.2, (TimelineView.toRatio(e) - TimelineView.toRatio(s)) * 100) + '%';
       bar.style.background = r.color;
       bar.title = r.name + '  ' + fmtTc(r.in) + ' → ' + fmtTc(r.out);
-      bar.addEventListener('click', function (ev) {
-        ev.stopPropagation();
-        onSeek(r.in);
-      });
+      // 本体拖拽 = 整段平移；单击（位移 < 4px）= 跳到入点
+      attachRangeDrag(bar, r);
 
       // 边缘在窗口内才给手柄，避免缩放到细节时误拖
       if (r.in >= view.start - 0.001 && r.in <= view.end + 0.001) attachRangeHandle(bar, r, 'in');
@@ -1029,6 +1214,9 @@ var Markers = (function () {
     add: add,
     remove: remove,
     rename: rename,
+    composeBatchLabel: composeBatchLabel,
+    batchRename: batchRename,
+    moveRangeTo: moveRangeTo,
     setTime: setTime,
     deleteSelected: deleteSelected,
     addRange: addRange,

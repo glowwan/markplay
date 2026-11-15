@@ -62,6 +62,21 @@ body {
 .panel-title { font-weight: 600; font-size: 13px; margin-bottom: 8px; }
 .panel-title .count { color: var(--muted); font-weight: 400; font-size: 12px; }
 .hint { color: var(--muted); font-size: 11px; margin-top: 6px; line-height: 1.5; }
+.hint.set { color: var(--accent); }
+
+/* 批量重命名内联表单 */
+#btn-batch-rename { margin-top: 8px; }
+#batch-rename-box {
+  margin-top: 8px; padding: 8px 10px;
+  background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius);
+}
+#batch-rename-box[hidden] { display: none; }
+#batch-rename-box .field { margin-bottom: 6px; }
+#batch-preview {
+  margin: 2px 0 8px;
+  font-family: Consolas, monospace; font-size: 11px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 
 /* 打点按钮 */
 .mark-buttons { display: flex; gap: 6px; margin-bottom: 8px; }

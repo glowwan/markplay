@@ -200,6 +200,73 @@
     UI.toast('已按相邻标记生成 ' + n + ' 个区间', { kind: 'success' });
   }
 
+  // ---------- 批量重命名 ----------
+  function batchBox() { return $('batch-rename-box'); }
+
+  /** 读表单当前值 */
+  function readBatchForm() {
+    var scopeEl = $('batch-scope');
+    var prefixEl = $('batch-prefix');
+    var suffixEl = $('batch-suffix');
+    var renumberEl = $('batch-renumber');
+    return {
+      scope: (scopeEl && scopeEl.value) || 'all',
+      prefix: (prefixEl && prefixEl.value) || '',
+      suffix: (suffixEl && suffixEl.value) || '',
+      renumber: !!(renumberEl && renumberEl.checked),
+    };
+  }
+
+  /** 用第一条命中的标记演示改名效果 */
+  function updateBatchPreview() {
+    var el = $('batch-preview');
+    if (!el) return;
+    var opts = readBatchForm();
+    var scope = opts.scope.toUpperCase();
+    var targets = Markers.getSorted().filter(function (m) {
+      return scope === 'ALL' || m.kind === scope;
+    });
+    if (!targets.length) {
+      el.textContent = '预览：范围内没有标记';
+      el.classList.remove('set');
+      return;
+    }
+    var first = targets[0];
+    var sample = Markers.composeBatchLabel(first.label, first.kind, 1, opts);
+    el.textContent = '预览：' + first.label + ' → ' + sample
+      + '（共 ' + targets.length + ' 条）';
+    el.classList.add('set');
+  }
+
+  function toggleBatchBox(show) {
+    var box = batchBox();
+    if (!box) return;
+    var next = (typeof show === 'boolean') ? show : box.hidden;
+    box.hidden = !next;
+    if (next) {
+      updateBatchPreview();
+      var first = $('batch-prefix');
+      if (first) first.focus();
+    }
+  }
+
+  function applyBatchRename() {
+    if (!requireVideo()) return;
+    var opts = readBatchForm();
+    if (!opts.prefix && !opts.suffix && !opts.renumber) {
+      status('前缀、后缀、重新编号 至少填一项', 'error');
+      return;
+    }
+    var n = Markers.batchRename(opts);
+    if (!n) {
+      status('没有标记被改动（可能名称本来就一样）', 'error');
+      return;
+    }
+    toggleBatchBox(false);
+    status('已重命名 ' + n + ' 条标记（Ctrl+Z 可撤销）', 'ok');
+    UI.toast('已重命名 ' + n + ' 条标记', { kind: 'success' });
+  }
+
   // ---------- 标记文件备份（Ctrl+S） ----------
   var backingUp = false;
 
@@ -408,7 +475,7 @@
   function updateEmptyState() {
     var has = !!state.videoPath;
     ['btn-mark-a', 'btn-mark-b', 'btn-mark-c',
-     'btn-mark-d', 'btn-mark-f', 'btn-mark-g',
+     'btn-mark-d', 'btn-mark-f', 'btn-mark-g', 'btn-batch-rename',
      'btn-fullscreen', 'btn-speed-fwd', 'btn-speed-rev', 'btn-loop',
      'btn-zoom-in', 'btn-zoom-out', 'btn-zoom-fit',
      'btn-range-in', 'btn-range-out', 'btn-range-from-ab', 'btn-range-adjacent',
@@ -923,6 +990,20 @@
     $('btn-range-out').addEventListener('click', markRangeOut);
     $('btn-range-from-ab').addEventListener('click', rangesFromMarkers);
     $('btn-range-adjacent').addEventListener('click', rangesFromAdjacent);
+
+    // 批量重命名表单
+    var batchBtn = $('btn-batch-rename');
+    if (batchBtn) batchBtn.addEventListener('click', function () { toggleBatchBox(); });
+    ['batch-scope', 'batch-prefix', 'batch-suffix', 'batch-renumber'].forEach(function (id) {
+      var el = $(id);
+      if (!el) return;
+      el.addEventListener('input', updateBatchPreview);
+      el.addEventListener('change', updateBatchPreview);
+    });
+    var applyBtn = $('btn-batch-apply');
+    if (applyBtn) applyBtn.addEventListener('click', applyBatchRename);
+    var cancelBtn = $('btn-batch-cancel');
+    if (cancelBtn) cancelBtn.addEventListener('click', function () { toggleBatchBox(false); });
     $('btn-mark-a').addEventListener('click', function () { addMarker('A'); });
     $('btn-mark-b').addEventListener('click', function () { addMarker('B'); });
     $('btn-mark-c').addEventListener('click', function () { addMarker('C'); });

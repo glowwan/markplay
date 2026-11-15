@@ -44,6 +44,40 @@
         </div>
         <ul id="marker-list" class="marker-list"></ul>
         <div class="hint">点击列表项跳转 · 双击标签重命名 · 拖动时间轴刻度改时间 · Ctrl+Z 撤销</div>
+
+        <!-- 批量重命名：内联表单（Electron 不支持 prompt，只能自己画） -->
+        <button id="btn-batch-rename" class="btn wide" title="按前缀 / 后缀 / 时序编号一次改多条标记名">批量重命名…</button>
+        <div id="batch-rename-box" hidden>
+          <label class="field">
+            <span>范围</span>
+            <select id="batch-scope">
+              <option value="all">全部标记</option>
+              <option value="A">仅 A</option>
+              <option value="B">仅 B</option>
+              <option value="C">仅 C</option>
+              <option value="D">仅 D</option>
+              <option value="F">仅 F</option>
+              <option value="G">仅 G</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>前缀</span>
+            <input type="text" id="batch-prefix" maxlength="20" placeholder="例如 开场-">
+          </label>
+          <label class="field">
+            <span>后缀</span>
+            <input type="text" id="batch-suffix" maxlength="20" placeholder="例如 -待定">
+          </label>
+          <label class="check">
+            <input type="checkbox" id="batch-renumber">
+            <span>按时间顺序重新编号（A1、A2…）</span>
+          </label>
+          <div class="hint" id="batch-preview">预览：—</div>
+          <div class="range-actions">
+            <button id="btn-batch-apply" class="btn primary">应用</button>
+            <button id="btn-batch-cancel" class="btn">取消</button>
+          </div>
+        </div>
       </section>
 
       <!-- ② 区间（显式 in/out，批量剪辑与 EDL 以它为准） -->
