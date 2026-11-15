@@ -1,5 +1,8 @@
 'use strict';
 
+// 错误消息会被直接显示给用户，所以走全局翻译
+const { t } = require('./i18n');
+
 const net = require('net');
 const EventEmitter = require('events');
 
@@ -40,7 +43,7 @@ class MpvClient extends EventEmitter {
   connect(pipePath) {
     return new Promise((resolve, reject) => {
       if (this.socket) {
-        reject(new Error('已经连接，不要重复调用 connect'));
+        reject(new Error(t('errors.mpvAlreadyConnected')));
         return;
       }
       const socket = net.createConnection(pipePath);
@@ -62,7 +65,7 @@ class MpvClient extends EventEmitter {
         // 只有连接成功后才挂载常驻的 data/close/error 处理
         socket.on('data', (chunk) => this._onData(chunk));
         socket.on('close', () => {
-          this._failAllPending(new Error('mpv 管道已断开'));
+          this._failAllPending(new Error(t('errors.mpvPipeClosed')));
           this.socket = null;
           this.buffer = '';
           this.emit('close');
@@ -93,7 +96,7 @@ class MpvClient extends EventEmitter {
   send(commandArray) {
     return new Promise((resolve, reject) => {
       if (!this.socket) {
-        reject(new Error('mpv 未连接，无法发送命令'));
+        reject(new Error(t('errors.mpvNotConnected')));
         return;
       }
       const id = ++this.requestId;
@@ -101,7 +104,7 @@ class MpvClient extends EventEmitter {
 
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new Error(`mpv 命令超时: ${JSON.stringify(commandArray)}`));
+        reject(new Error(t('errors.mpvCommandTimeout', { cmd: JSON.stringify(commandArray) })));
       }, COMMAND_TIMEOUT_MS);
 
       this.pending.set(id, { resolve, reject, timer });
@@ -138,7 +141,7 @@ class MpvClient extends EventEmitter {
       this.socket = null;
       sock.end();
     }
-    this._failAllPending(new Error('MpvClient 已关闭'));
+    this._failAllPending(new Error(t('errors.mpvClientClosed')));
     this.buffer = '';
   }
 

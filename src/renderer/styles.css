@@ -102,10 +102,10 @@ body {
   scrollbar-gutter: stable;
 }
 .list-spacer { width: 100%; position: relative; }
-.marker-list:empty::after {
-  content: "暂无标记 — 播放时按 A / B / C / D / F / G 打点";
+/* 空状态不再用 content（文案要跟随语言切换，见 .empty-state） */
+.list-empty {
   display: block; color: var(--muted); font-size: 12px;
-  padding: 10px 4px; text-align: center;
+  padding: 10px 4px; text-align: center; list-style: none;
 }
 .marker-item {
   display: flex; align-items: center; gap: 8px;
@@ -134,10 +134,8 @@ body {
 }
 #range-pending.set { color: var(--accent); }
 .range-list { max-height: 150px; }
-.range-list:empty::after {
-  content: "还没有区间 — 播到起点按 [ 设入点，到终点按 ] 建区间";
-  display: block; color: var(--muted); font-size: 11px;
-  padding: 8px 4px; text-align: center; line-height: 1.5;
+.range-list .list-empty {
+  font-size: 11px; padding: 8px 4px; line-height: 1.5;
 }
 .range-item {
   display: flex; align-items: center; gap: 8px;

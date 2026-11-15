@@ -67,10 +67,52 @@ function createTranslator(lang, dict, fallbackDict) {
   };
 }
 
+// ---------- 全局当前语言 ----------
+// 供 mpv.js 这类低层模块使用：它们没有自己的语言状态，
+// 但抛出的错误消息可能被直接显示给用户，所以需要共享一个"当前语言"。
+
+/** @type {'zh-CN'|'en-US'} */
+let activeLang = 'zh-CN';
+/** @type {Record<string, any>|null} */
+let activeDict = null;
+/** @type {Record<string, any>|null} */
+let fallbackDict = null;
+
+/**
+ * 设置全局语言（主进程切换语言时调用）。
+ * @param {'zh-CN'|'en-US'} lang
+ * @param {Record<string, any>} dict 该语言的字典
+ * @param {Record<string, any>} [fallback] 回退字典
+ */
+function setActiveLanguage(lang, dict, fallback) {
+  activeLang = normalize(lang);
+  activeDict = dict || null;
+  fallbackDict = fallback || null;
+}
+
+/** @returns {'zh-CN'|'en-US'} */
+function getActiveLanguage() {
+  return activeLang;
+}
+
+/**
+ * 用全局语言取词。字典未初始化时直接返回 key，不抛错。
+ * @param {string} key
+ * @param {object} [params]
+ * @returns {string}
+ */
+function t(key, params) {
+  if (!activeDict) return key;
+  return createTranslator(activeLang, activeDict, fallbackDict || activeDict)(key, params);
+}
+
 module.exports = {
   SUPPORTED,
   createTranslator,
+  getActiveLanguage,
   interpolate,
   lookup,
   normalize,
+  setActiveLanguage,
+  t,
 };

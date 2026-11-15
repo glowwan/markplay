@@ -2,7 +2,7 @@
 
 module.exports = {
   "app": {
-    "name": "MarkPlay",
+    "name": "MarkPlay 打点播放器",
     "tagline": "打点播放器"
   },
   "common": {
@@ -86,7 +86,12 @@ module.exports = {
     "mpvInit": "mpv 初始化失败: {msg}",
     "subtitleMissing": "字幕文件不存在: {path}",
     "ffmpegCode": "ffmpeg 退出码 {code}",
-    "ffmpegCodeDetail": "ffmpeg 退出码 {code}：{detail}"
+    "ffmpegCodeDetail": "ffmpeg 退出码 {code}：{detail}",
+    "mpvAlreadyConnected": "已经连接，不要重复调用 connect",
+    "mpvPipeClosed": "mpv 管道已断开",
+    "mpvNotConnected": "mpv 未连接，无法发送命令",
+    "mpvCommandTimeout": "mpv 命令超时: {cmd}",
+    "mpvClientClosed": "MpvClient 已关闭"
   },
   "open": {
     "notFound": "文件不存在: {path}",
@@ -227,7 +232,10 @@ module.exports = {
     "deleteMarkerTitle": "删除该标记",
     "renameHint": "双击重命名",
     "deleteRangeTitle": "删除该区间",
-    "langSwitchDesc": "切换界面语言（中文 / English）"
+    "langSwitchDesc": "切换界面语言（中文 / English）",
+    "noMarkers": "暂无标记 — 播放时按 A / B / C / D / F / G 打点",
+    "noRanges": "还没有区间 — 播到起点按 [ 设入点，到终点按 ] 建区间",
+    "countBadge": "（{n}）"
   },
   "status": {
     "readyVersion": "就绪 · MarkPlay {version}",

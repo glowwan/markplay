@@ -33,7 +33,7 @@ const {
   toConcatLine,
 } = require('./media-utils');
 const { backupPathFor, isBackupOf, pickBackupsToDelete } = require('./sidecar-backup');
-const { SUPPORTED, createTranslator, normalize } = require('./i18n');
+const { SUPPORTED, createTranslator, normalize, setActiveLanguage } = require('./i18n');
 const dictZh = require('./locales/zh-CN');
 const dictEn = require('./locales/en-US');
 
@@ -52,6 +52,8 @@ const DICTS = { 'zh-CN': dictZh, 'en-US': dictEn };
 function setLanguage(lang) {
   currentLang = normalize(lang);
   t = createTranslator(currentLang, DICTS[currentLang], dictZh);
+  // 同步给 mpv.js 等低层模块，让它们抛出的错误也跟着翻译
+  setActiveLanguage(currentLang, DICTS[currentLang], dictZh);
 }
 
 // ---------- 常量 ----------
@@ -148,7 +150,7 @@ let lastVideoRect = null;
  * 注意 mpv 原生不支持负速度倒放（官方 wontfix），右键的 2x 倒放由主进程定时回退模拟。
  */
 const MPV_INPUT_CONF_TEXT = [
-  '# MarkPlay 自动生成：视频画面上的鼠标点击',
+    '# MarkPlay generated: mouse bindings on the video surface',
   'MBTN_LEFT script-message markplay-click left',
   'MBTN_RIGHT script-message markplay-click right',
   'MBTN_MID script-message markplay-click mid',
@@ -872,7 +874,9 @@ function runFfmpegJob(args, output, totalUs, onPercent) {
         if (fs.existsSync(output)) fs.unlinkSync(output);
       } catch { /* 文件可能被占用，忽略 */ }
       const detail = stderrTail.trim().split('\n').slice(-3).join(' | ');
-      reject(new Error(`ffmpeg 退出码 ${code}${detail ? '：' + detail : ''}`));
+      reject(new Error(detail
+        ? t('errors.ffmpegCodeDetail', { code, detail })
+        : t('errors.ffmpegCode', { code })));
     });
   });
 }

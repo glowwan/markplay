@@ -12,6 +12,7 @@
 
 require('./settings.test.js');
 require('./i18n.test.js');
+require('./i18n-coverage.test.js');
 require('./logger.test.js');
 require('./media-utils.test.js');
 require('./sidecar-backup.test.js');

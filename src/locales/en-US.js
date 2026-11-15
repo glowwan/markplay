@@ -2,7 +2,7 @@
 
 module.exports = {
   "app": {
-    "name": "MarkPlay",
+    "name": "MarkPlay — Marker Player",
     "tagline": "Marker player"
   },
   "common": {
@@ -86,7 +86,12 @@ module.exports = {
     "mpvInit": "mpv failed to initialise: {msg}",
     "subtitleMissing": "Subtitle file not found: {path}",
     "ffmpegCode": "ffmpeg exited with code {code}",
-    "ffmpegCodeDetail": "ffmpeg exited with code {code}: {detail}"
+    "ffmpegCodeDetail": "ffmpeg exited with code {code}: {detail}",
+    "mpvAlreadyConnected": "Already connected — do not call connect() twice",
+    "mpvPipeClosed": "mpv pipe closed",
+    "mpvNotConnected": "mpv is not connected, cannot send commands",
+    "mpvCommandTimeout": "mpv command timed out: {cmd}",
+    "mpvClientClosed": "MpvClient is closed"
   },
   "open": {
     "notFound": "File not found: {path}",
@@ -227,7 +232,10 @@ module.exports = {
     "deleteMarkerTitle": "Delete this marker",
     "renameHint": "Double-click to rename",
     "deleteRangeTitle": "Delete this range",
-    "langSwitchDesc": "Switch interface language (English / 中文)"
+    "langSwitchDesc": "Switch interface language (English / 中文)",
+    "noMarkers": "No markers yet — press A / B / C / D / F / G while playing",
+    "noRanges": "No ranges yet — press [ at the in point, ] at the out point",
+    "countBadge": " ({n})"
   },
   "status": {
     "readyVersion": "Ready · MarkPlay {version}",

@@ -116,6 +116,18 @@ var Markers = (function () {
    * 行数不多时直接全量渲染：窗口缩放后不需要重新计算可视区间，
    * 也不会出现"只画了前几行、剩下的被虚拟化漏掉"的问题。
    */
+  /**
+   * 造一个空状态占位行。文案从字典取，所以语言切换后重绘就跟着变。
+   * @param {string} key 字典键
+   * @returns {HTMLLIElement}
+   */
+  function buildEmptyState(key) {
+    var li = document.createElement('li');
+    li.className = 'list-empty';
+    li.textContent = I18n.t(key);
+    return li;
+  }
+
   function renderSimple(ul, list, itemH, build) {
     var scrollTop = ul.scrollTop || 0;
     ul.innerHTML = '';
@@ -839,8 +851,14 @@ var Markers = (function () {
     var ul = document.getElementById('marker-list');
     if (!ul) return;
     var countEl = document.getElementById('marker-count');
-    if (countEl) countEl.textContent = items.length ? '（' + items.length + '）' : '';
+    if (countEl) countEl.textContent = items.length ? I18n.t('ui.countBadge', { n: items.length }) : '';
     var sorted = getSorted();
+    if (!sorted.length) {
+      // 空状态文案要在运行时取，才能跟随语言切换（原先写在 CSS content 里）
+      ul.innerHTML = '';
+      ul.appendChild(buildEmptyState('ui.noMarkers'));
+      return;
+    }
     if (sorted.length <= SIMPLE_LIMIT) {
       renderSimple(ul, sorted, LIST_ITEM_H, buildMarkerRow);
     } else {
@@ -1013,10 +1031,13 @@ var Markers = (function () {
     var sorted = getRanges();
 
     var countEl = document.getElementById('range-count');
-    if (countEl) countEl.textContent = sorted.length ? '（' + sorted.length + '）' : '';
+    if (countEl) countEl.textContent = sorted.length ? I18n.t('ui.countBadge', { n: sorted.length }) : '';
 
     if (ul) {
-      if (sorted.length <= SIMPLE_LIMIT) {
+      if (!sorted.length) {
+        ul.innerHTML = '';
+        ul.appendChild(buildEmptyState('ui.noRanges'));
+      } else if (sorted.length <= SIMPLE_LIMIT) {
         renderSimple(ul, sorted, RANGE_ITEM_H, buildRangeRow);
       } else {
         renderVirtual(ul, sorted, RANGE_ITEM_H, buildRangeRow);
