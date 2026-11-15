@@ -52,7 +52,7 @@ MarkPlay turns those three steps into one continuous flow of gestures and shortc
 
 ## Interface
 
-![MarkPlay in action](docs/images/demo.gif)
+![Inertial trackpad scrubbing](docs/images/scrub.gif)
 
 Sidebar panels, top to bottom: **Markers** → **Ranges** → **Clip** → **Export**.
 

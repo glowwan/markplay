@@ -52,7 +52,7 @@ MarkPlay 把这三步做成了一套连贯的手势和快捷键：
 
 ## 界面
 
-![MarkPlay 操作演示](docs/images/demo.gif)
+![用触摸板顺滑刷片](docs/images/scrub.gif)
 
 侧栏从上到下依次是：**标记** → **区间** → **剪辑** → **导出**。
 
