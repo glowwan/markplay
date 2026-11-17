@@ -150,6 +150,7 @@ test('渲染进程与主进程源码里没有硬编码中文文案', () => {
     'src/renderer/scrub.js', 'src/renderer/ui.js', 'src/renderer/scenes.js',
     'src/renderer/timeline-view.js', 'src/renderer/i18n-apply.js',
     'src/playlist/playlist.js',
+    'src/controls/controls.js',
   ];
 
   /** 允许保留：日志、IME 键位别名、语言菜单里的母语标签 */

@@ -1173,3 +1173,75 @@ setTimeout(() => {
    F11/ESC/布局都读它。
 3. **无法单测的逻辑，用源码契约测试兜住。** 这段代码依赖 Electron 窗口状态，
    node:vm 测不了；但"不许这么写"是可以断言的，8 条断言成本很低。
+
+## 二十八、全屏播放状态栏（v1.12.0）
+
+### 为什么又是独立窗口
+
+全屏时视频是 mpv 的原生子窗口，主窗口的 HTML 被完全盖住——和文件列表同一个约束。
+所以状态栏只能是第四个窗口（主窗口 + 视频子窗口 + 列表 + 状态栏）。
+
+### 怎么做到"内容与非全屏底部模块一致"
+
+**样式直接复用**：状态栏页面 `<link rel="stylesheet" href="../renderer/styles.css">`，
+`#controlbar` / `#timeline` / `.icon-btn` 等规则原样生效，我另加一个小 `controls.css`
+只处理"这是覆盖在视频上的透明窗口"带来的差异（透明背景、圆角、从下滑入）。
+复现里量到 `border-radius: 10px`、`height: 118px`，说明主样式确实吃上了。
+
+**数据从主窗口来**：状态栏没有 `Markers`、`TimelineView`、`Exporter`，
+标记刻度、区间条、转场浮标、视图范围、时间码格式这些东西它都算不出来。
+所以由主窗口渲染进程打包快照推送：
+
+```js
+{ currentTime, duration, paused, volume, speedMode, looping, showScenes,
+  scenes, markers, ranges, view: {start,end}, status }
+```
+
+显示期间每 400ms 推一次，隐藏就 `clearInterval` —— 平时零 IPC 开销。
+
+**命令回主窗口执行**：状态栏的点击只发命令名，
+主窗口落到已有的 `togglePlay` / `seekTo` / `toggleSpeed` / `toggleLoop` /
+`toggleScenes` / `zoomStep` / `zoomFit` 上。没有第二套播放控制实现。
+
+### 两个热区互不干扰
+
+右侧（文件列表）和下边缘（状态栏）共用同一个轮询表，但各自独立判定：
+`hitRightEdge` 决定列表，`hitBottomEdge` 决定状态栏，收起判定都用 `insideList`（矩形 + 外扩容差）。
+
+v1.11.2 的教训还热着，所以这次没有在轮询表里加任何"聪明"的状态校验，
+只在既有结构上追加一个独立分支。
+
+### 复现抓到的一个真缺陷
+
+用最小 Electron 工程加载真实的状态栏页面，推一份假快照，然后用
+`executeJavaScript` 点按钮、派发 pointerdown 到时间轴，检查命令有没有发出来。
+
+按钮命令全部正常，但 **`seek` 一条都没有**。原因是：
+
+```js
+timeline.setPointerCapture && timeline.setPointerCapture(e.pointerId);  // ← 这里抛
+seekFromEvent(e);                                                       // ← 永远执行不到
+```
+
+合成事件没有真实 `pointerId`，`setPointerCapture` 抛 `InvalidPointerId`，
+后面的 seek 被一起吞掉。真实鼠标点击时不会抛，所以肉眼测很可能发现不了。
+
+改成先 seek 再抓指针，并给抓指针包 `try`：
+
+```js
+seekFromEvent(e);
+try { if (timeline.setPointerCapture) timeline.setPointerCapture(e.pointerId); } catch {}
+```
+
+复现重跑后 `seek 150`（600 秒的 25%）正常发出。
+
+### 测试
+
+- `playlist-model.test.js` 增加 `hitBottomEdge` 的 6 个用例
+  （含多显示器、与右侧热区交叉、边界值）
+- 新增 `tests/controls-bar.test.js`：14 条源码契约断言，钉住
+  "下边缘走模型函数""只在全屏出现""退出全屏必须收起""推快照后要抬高窗口"
+  "创建在 registerIpc 之后""生命周期要销毁""preload 与主进程通道对齐"
+  "快照字段齐全""先 seek 再抓指针""样式复用 styles.css""内容元素齐全"
+- `check-dom` 扩到四页面（主窗口 / 列表 / 状态栏），翻译覆盖率纳入 `controls.js`
+

@@ -240,7 +240,8 @@ module.exports = {
     "noRanges": "No ranges yet — press [ at the in point, ] at the out point",
     "countBadge": " ({n})",
     "playlistDesc": "File list (Ctrl+L): videos opened in bulk live here",
-    "startFromBeginning": "Start over"
+    "startFromBeginning": "Start over",
+    "exitFullscreenDesc": "Exit fullscreen (Esc)"
   },
   "status": {
     "readyVersion": "Ready · MarkPlay {version}",
@@ -345,5 +346,8 @@ module.exports = {
     "exitFullscreen": "Exit fullscreen (Esc)",
     "add": "Add files to the list",
     "remove": "Remove from list (does not delete the file)"
+  },
+  "controls": {
+    "title": "Playback Bar"
   }
 };

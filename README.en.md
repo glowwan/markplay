@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078d4.svg)](#requirements)
-[![Version](https://img.shields.io/badge/version-v1.11.2-green.svg)](#)
+[![Version](https://img.shields.io/badge/version-v1.12.0-green.svg)](#)
 
 [中文](README.md) | **English**
 
@@ -69,6 +69,7 @@ The control bar sits below the video rather than floating over it — the video 
 - **A–B loop** — `L` loops the selected range; the button shows `A–B 1` and follows range switches.
 - **2x speed** — left-click the video for 2x forward, right-click for 2x reverse (reverse is simulated: pause + timed rewind, since mpv doesn't support negative speed).
 - **Fullscreen** — `F11` or ⛶, `ESC` to exit; the file list also has a ⤢ button for leaving fullscreen.
+- **Fullscreen playback bar** — move the pointer to the **bottom edge of the screen** and the same playback bar you get in windowed mode slides up (timeline included); move away and it hides.
 - **Resume** — each video remembers where you stopped and jumps back there next time, with a "Start over" button. Only reaching the actual end resets it; stopping a few seconds before the end still resumes from there.
 - **Subtitles** — auto-loads same-named subtitle files; drop a `.srt` / `.ass` / `.vtt` into the window to attach manually.
 - **Chinese / English UI** — switch instantly from the Language menu or the `中/EN` button; no restart, no lost progress. Follows the system language on first run, then remembers your choice.

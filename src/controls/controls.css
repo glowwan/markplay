@@ -1,0 +1,51 @@
+/* 全屏播放状态栏窗口的补充样式
+ *
+ * 主体样式直接复用 ../renderer/styles.css（#controlbar / #timeline 等规则完全相同），
+ * 这里只处理"这是一个覆盖在视频上的透明窗口"带来的差异：
+ *  - 窗口透明，控制条自己带背景和圆角；
+ *  - 从底部滑入的动画；
+ *  - 去掉主窗口里才有意义的布局约束。
+ */
+
+html, body {
+  background: transparent !important;
+  overflow: hidden;
+}
+
+body.controls-body {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  height: 100%;
+  padding: 0 10px 8px;
+}
+
+/* 复用 #controlbar 的结构与配色，只调整"悬浮"相关的几处 */
+#controlbar {
+  width: 100%;
+  height: 118px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, .55);
+
+  /* 从下方滑入 */
+  opacity: 0;
+  transform: translateY(14px);
+  transition: opacity .16s ease, transform .16s ease;
+}
+
+#controlbar.in {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* 状态文字在这条又窄又长的条里不需要太长 */
+#status {
+  max-width: 320px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 让时间轴在悬浮条里稍微矮一点，整体更紧凑 */
+#timeline { height: 40px; }

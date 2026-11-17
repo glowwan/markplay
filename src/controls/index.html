@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title data-i18n="controls.title">播放状态栏</title>
+<!-- 复用主窗口的样式，保证视觉与非全屏模式下的底部模块一致 -->
+<link rel="stylesheet" href="../renderer/styles.css">
+<link rel="stylesheet" href="controls.css">
+</head>
+<body class="controls-body">
+<div id="controlbar">
+  <div class="controls-row">
+    <button id="btn-play" class="icon-btn" data-i18n-title="ui.playDesc" title="播放 / 暂停 (Space)">▶</button>
+    <button id="btn-open" class="icon-btn" data-i18n-title="ui.openDesc" title="打开视频文件 (O)">📂</button>
+    <button id="btn-playlist" class="icon-btn" data-i18n-title="ui.playlistDesc" title="文件列表">🗂</button>
+    <button id="btn-fullscreen" class="icon-btn" data-i18n-title="ui.exitFullscreenDesc" title="退出全屏 (Esc)">⛶</button>
+    <button id="btn-speed-fwd" class="icon-btn speed-btn" data-i18n-title="ui.speedFwdDesc" title="2 倍速正放 / 恢复 (X)">2x▶</button>
+    <button id="btn-speed-rev" class="icon-btn speed-btn" data-i18n-title="ui.speedRevDesc" title="2 倍速倒放 / 恢复 (Z)">◀2x</button>
+    <button id="btn-loop" class="icon-btn speed-btn" data-i18n="ui.loop" data-i18n-title="ui.loopDesc" title="A–B 循环（L）">A–B</button>
+    <button id="btn-scenes" class="icon-btn speed-btn" data-i18n="ui.scenes" data-i18n-title="ui.scenesDesc" title="转场提示">转场</button>
+
+    <div class="zoom-wrap" data-i18n-title="ui.zoomWrapDesc" title="时间轴缩放">
+      <button id="btn-zoom-out" class="mini-btn" data-i18n="ui.zoomOut" title="缩小">−</button>
+      <span id="zoom-label" data-i18n="ui.zoomFull">全片</span>
+      <button id="btn-zoom-in" class="mini-btn" data-i18n="ui.zoomIn" title="放大">＋</button>
+      <button id="btn-zoom-fit" class="mini-btn" data-i18n="ui.zoomFit" title="适配全片">适配</button>
+    </div>
+
+    <div id="time-wrap">
+      <span id="time-current">00:00:00.000</span>
+      <span class="sep">/</span>
+      <span id="time-total">--:--:--</span>
+    </div>
+
+    <div class="vol-wrap" data-i18n-title="ui.volumeDesc" title="音量">
+      <span class="vol-icon">🔊</span>
+      <input type="range" id="volume" min="0" max="100" value="100" step="1">
+    </div>
+
+    <div id="status" data-i18n-title="ui.statusDesc" title="状态" data-i18n="ui.ready">就绪</div>
+  </div>
+
+  <div id="timeline" data-i18n-title="ui.timelineDesc" title="点击或拖拽跳转">
+    <div id="scene-bubbles"></div>
+    <div id="timeline-track"></div>
+    <div id="range-bars"></div>
+    <div id="marker-ticks"></div>
+    <div id="timeline-playhead"></div>
+  </div>
+</div>
+
+<script src="../renderer/i18n-apply.js"></script>
+<script src="controls.js"></script>
+</body>
+</html>

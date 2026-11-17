@@ -152,6 +152,26 @@ function hitRightEdge(cursor, display, edgePx) {
 }
 
 /**
+ * 光标是否进入了"下边缘热区"（全屏时用来决定要不要弹出播放状态栏）。
+ *
+ * 与右侧热区同一套判定思路：只在屏幕底部那一小条算命中。
+ *
+ * @param {{x: number, y: number}} cursor screen.getCursorScreenPoint()
+ * @param {{x: number, y: number, width: number, height: number}} display 显示器 bounds
+ * @param {number} edgePx 热区高度（像素）
+ * @returns {boolean}
+ */
+function hitBottomEdge(cursor, display, edgePx) {
+  if (!cursor || !display) return false;
+  const bottom = display.y + display.height;
+  const top = bottom - Math.max(1, edgePx);
+  const left = display.x;
+  const right = display.x + display.width;
+  return cursor.y >= top && cursor.y <= bottom + 1
+    && cursor.x >= left && cursor.x <= right;
+}
+
+/**
  * 光标是否还"落在列表上"（含外扩边距）。
  * 离开这个范围就自动收起。
  *
@@ -221,6 +241,7 @@ function computeBounds(p) {
 
 module.exports = {
   appendPaths,
+  hitBottomEdge,
   removeAt,
   buildItems,
   computeBounds,

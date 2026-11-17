@@ -240,7 +240,8 @@ module.exports = {
     "noRanges": "还没有区间 — 播到起点按 [ 设入点，到终点按 ] 建区间",
     "countBadge": "（{n}）",
     "playlistDesc": "文件列表（Ctrl+L）：批量打开的视频都在这里",
-    "startFromBeginning": "从头开始"
+    "startFromBeginning": "从头开始",
+    "exitFullscreenDesc": "退出全屏 (Esc)"
   },
   "status": {
     "readyVersion": "就绪 · MarkPlay {version}",
@@ -345,5 +346,8 @@ module.exports = {
     "exitFullscreen": "退出全屏 (Esc)",
     "add": "添加文件到列表",
     "remove": "从列表移除（不会删除文件）"
+  },
+  "controls": {
+    "title": "播放状态栏"
   }
 };

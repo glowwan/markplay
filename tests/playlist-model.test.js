@@ -255,3 +255,52 @@ test('removeAt + appendPaths 连用：删完再加回来', () => {
   assert.equal(r.items.length, 2);
   assert.deepEqual(r.items.map((x) => x.name), ['a.mp4', 'b.mp4']);
 });
+
+// ---------------------------------------------------------------- 下边缘热区（全屏状态栏）
+
+const DISP = { x: 0, y: 0, width: 1920, height: 1080 };
+
+test('hitBottomEdge：光标在底边热区内算命中', () => {
+  assert.equal(M.hitBottomEdge({ x: 960, y: 1079 }, DISP, 24), true);
+  assert.equal(M.hitBottomEdge({ x: 960, y: 1056 }, DISP, 24), true);  // 1080-24=1056 边界含
+  assert.equal(M.hitBottomEdge({ x: 10, y: 1060 }, DISP, 24), true);
+});
+
+test('hitBottomEdge：离开热区不命中', () => {
+  assert.equal(M.hitBottomEdge({ x: 960, y: 1055 }, DISP, 24), false);
+  assert.equal(M.hitBottomEdge({ x: 960, y: 540 }, DISP, 24), false);
+  assert.equal(M.hitBottomEdge({ x: 960, y: 0 }, DISP, 24), false);
+});
+
+test('hitBottomEdge：下方多显示器时用各自坐标', () => {
+  const lower = { x: 0, y: 1080, width: 1920, height: 1080 };
+  // 第二块屏的底边在 2160
+  assert.equal(M.hitBottomEdge({ x: 500, y: 2155 }, lower, 24), true);
+  // 第一块屏的底边位置不属于第二块屏的热区
+  assert.equal(M.hitBottomEdge({ x: 500, y: 1079 }, lower, 24), false);
+});
+
+test('hitBottomEdge：非法输入安全', () => {
+  assert.equal(M.hitBottomEdge(null, DISP, 24), false);
+  assert.equal(M.hitBottomEdge({ x: 1, y: 1 }, null, 24), false);
+  assert.equal(M.hitBottomEdge({ x: 960, y: 1079 }, DISP, 0), true);
+});
+
+test('hitBottomEdge 与 hitRightEdge 互不干扰', () => {
+  // 右下角同时命中两者
+  const corner = { x: 1915, y: 1075 };
+  assert.equal(M.hitRightEdge(corner, DISP, 26), true);
+  assert.equal(M.hitBottomEdge(corner, DISP, 24), true);
+  // 右中只命中右侧
+  assert.equal(M.hitRightEdge({ x: 1915, y: 540 }, DISP, 26), true);
+  assert.equal(M.hitBottomEdge({ x: 1915, y: 540 }, DISP, 24), false);
+  // 中下只命中下侧
+  assert.equal(M.hitRightEdge({ x: 960, y: 1075 }, DISP, 26), false);
+  assert.equal(M.hitBottomEdge({ x: 960, y: 1075 }, DISP, 24), true);
+});
+
+test('insideList：也能用于底部状态栏矩形', () => {
+  const bar = { x: 0, y: 952, width: 1920, height: 128 };
+  assert.equal(M.insideList({ x: 900, y: 1000 }, bar, 8), true);
+  assert.equal(M.insideList({ x: 900, y: 900 }, bar, 8), false);
+});

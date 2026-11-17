@@ -102,6 +102,14 @@ contextBridge.exposeInMainWorld('markplay', {
   openVideosFromPaths: (paths) => ipcRenderer.invoke('open-videos-from-paths', paths),
 
   /**
+   * 推送全屏播放状态栏的状态快照（标记 / 区间 / 转场 / 视图范围等）。
+   * 状态栏窗口没有 Markers / TimelineView，这些数据只能由这里提供。
+   * @param {object} snapshot
+   * @returns {Promise<{ok: boolean}>}
+   */
+  controlsState: (snapshot) => ipcRenderer.invoke('controls-state', snapshot),
+
+  /**
    * 告诉主进程"这个文件已经载入成功"，文件列表据此移动高亮。
    * 对话框 / 拖放 / 最近打开 / 列表点击 / 启动参数都会走到这里。
    * @param {string} filePath

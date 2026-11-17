@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078d4.svg)](#环境要求)
-[![Version](https://img.shields.io/badge/version-v1.11.2-green.svg)](#)
+[![Version](https://img.shields.io/badge/version-v1.12.0-green.svg)](#)
 
 **中文** | [English](README.en.md)
 
@@ -71,6 +71,7 @@ MarkPlay 把这三步做成了一套连贯的手势和快捷键：
 - **A–B 循环**：按 `L` 循环选中区间，按钮显示 `A–B 1` 这样的序号，换区间自动跟随；
 - **2x 变速**：左键点画面 = 2x 正放/恢复，右键点画面 = 2x 倒放/恢复（倒放为"暂停+定时精确回退"模拟）；
 - **视频全屏**：`F11` 或点 ⛶，`ESC` 退出；全屏时文件列表里也有一个 ⤢ 按钮可以退出；
+- **全屏播放状态栏**：全屏时把鼠标移到**屏幕下边缘**，底部浮出与非全屏一致的播放状态栏（含时间轴），移开自动收起；
 - **续播**：每个视频记住上次看到的位置，再次打开自动跳回，并给一个「从头开始」按钮；**只有真正播完才从头**，中途停在片尾前几秒也会从那里继续；
 - **字幕**：自动加载视频旁的同名字幕；把 `.srt/.ass/.vtt` 拖进窗口也能挂上；
 - **中英双语界面**：菜单「语言 / Language」或控制条的 `中/EN` 按钮即时切换，不重启、不丢当前进度；首次启动跟随系统语言，之后记住选择。

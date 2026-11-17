@@ -671,6 +671,86 @@
     }
   }
 
+  // ---------- 全屏播放状态栏：快照推送 ----------
+
+  /** 状态栏快照的推送定时器（只在状态栏显示时跑） */
+  var controlsTimer = 0;
+
+  /**
+   * 把当前状态打包成一份快照推给主进程（它再转发给状态栏窗口）。
+   * 状态栏没有 Markers / TimelineView / Exporter，所以标记、区间、
+   * 转场点和时间轴视图范围都必须由这里提供。
+   */
+  function pushControlsSnapshot() {
+    if (!window.markplay.controlsState) return;
+    var view = TimelineView.getState();
+    var snapshot = {
+      currentTime: state.currentTime,
+      duration: state.duration,
+      paused: state.paused,
+      volume: Math.round(state.volume),
+      speedMode: state.speedMode,
+      looping: state.looping === true,
+      showScenes: state.showScenes === true,
+      scenes: visibleSceneTimes(),
+      markers: Markers.getSorted().map(function (m) {
+        return { label: m.label, time: m.time, color: m.color };
+      }),
+      ranges: Markers.getRanges().map(function (r) {
+        return { name: r.name, in: r.in, out: r.out, color: r.color };
+      }),
+      view: { start: view.start, end: view.end },
+      status: (document.getElementById('status') || {}).textContent || '',
+    };
+    window.markplay.controlsState(snapshot);
+  }
+
+  /** 开始/停止周期推送 */
+  function setControlsPushing(on) {
+    if (on) {
+      if (controlsTimer) return;
+      pushControlsSnapshot();
+      controlsTimer = setInterval(pushControlsSnapshot, 400);
+    } else if (controlsTimer) {
+      clearInterval(controlsTimer);
+      controlsTimer = 0;
+    }
+  }
+
+  // ---------- 全屏播放状态栏：执行命令 ----------
+
+  /**
+   * 状态栏窗口发来的命令，在这里落到已有的函数上。
+   * @param {string} name
+   * @param {any} arg
+   */
+  function runControlCommand(name, arg) {
+    switch (name) {
+      case 'toggle-play': togglePlay(); break;
+      case 'seek': seekTo(Number(arg)); break;
+      case 'volume':
+        if (window.markplay.mpvCommand) {
+          window.markplay.mpvCommand(['set_property', 'volume', Math.round(Number(arg))]).catch(function () {});
+        }
+        break;
+      case 'toggle-fullscreen':
+        window.markplay.toggleFullscreen().catch(function () {});
+        break;
+      case 'speed-fwd': toggleSpeed('fwd2x'); break;
+      case 'speed-rev': toggleSpeed('rev2x'); break;
+      case 'toggle-loop': toggleLoop(); break;
+      case 'toggle-scenes': toggleScenes(); break;
+      case 'zoom-in': zoomStep(true); break;
+      case 'zoom-out': zoomStep(false); break;
+      case 'zoom-fit': zoomFit(); break;
+      case 'open': openFile(); break;
+      case 'playlist': window.markplay.togglePlaylist().catch(function () {}); break;
+      default: break;
+    }
+    // 命令改变了状态，立刻回推一份，界面不用等下一个 400ms
+    pushControlsSnapshot();
+  }
+
   // 视频已载入后的 UI 刷新（对话框/拖放/菜单/视频窗口拖放共用）
   function afterVideoOpened(path) {
     state.videoPath = path;
@@ -1253,6 +1333,16 @@
           if (ev.action === 'in') zoomStep(true);
           else if (ev.action === 'out') zoomStep(false);
           else zoomFit();
+          break;
+        case 'controls-shown':
+          // 状态栏显示中才持续推快照，避免平时无谓的 IPC
+          setControlsPushing(ev.visible === true);
+          break;
+        case 'controls-need-snapshot':
+          pushControlsSnapshot();
+          break;
+        case 'control-command':
+          runControlCommand(ev.name, ev.arg);
           break;
         case 'language-changed':
           // 主进程换语言后：重刷静态文案 + 重绘 JS 生成的内容，不重载页面

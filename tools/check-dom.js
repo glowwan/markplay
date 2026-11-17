@@ -28,6 +28,13 @@ const PAGES = [
     html: 'index.html',
     scripts: ['playlist.js'],
   },
+
+  {
+    dir: path.join(root, 'src/controls'),
+    label: 'controls',
+    html: 'index.html',
+    scripts: ['controls.js'],
+  },
 ];
 
 /** 字典（用于校验 data-i18n 引用的键） */

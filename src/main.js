@@ -130,6 +130,20 @@ let lastResumeSaveAt = 0;
 const RESUME_SAVE_INTERVAL_MS = 5000;
 /** 当前视频是否已经播到结尾（播完后不再写记忆点） */
 let videoFinished = false;
+
+// ---------- 全屏播放状态栏 ----------
+/** @type {BrowserWindow|null} 状态栏窗口 */
+let controlsWindow = null;
+/** 状态栏是否显示中 */
+let controlsVisible = false;
+/** 上一次应用的矩形键 */
+let controlsRectKey = '';
+/** 状态栏高度（含内边距与圆角阴影余量） */
+const CONTROLS_HEIGHT = 150;
+/** 全屏时：光标进入屏幕下边缘多少像素就弹出状态栏 */
+const CONTROLS_EDGE_PX = 24;
+/** 光标离开状态栏外扩多少像素后算离开 */
+const CONTROLS_KEEP_MARGIN = 10;
 /** 启动参数里带的视频路径（双击关联文件 / 拖到 exe 上） */
 let startupFile = '';
 /** 当前视频路径（菜单"在文件夹中显示"用） */
@@ -359,6 +373,10 @@ function createMainWindow() {
       playlistWindow.destroy();
     }
     playlistWindow = null;
+    if (controlsWindow && !controlsWindow.isDestroyed()) {
+      controlsWindow.destroy();
+    }
+    controlsWindow = null;
     mainWindow = null;
     surfaceWindow = null;
   });
@@ -423,6 +441,131 @@ function createSurfaceWindow() {
   console.log('[main] surface HWND =', surfaceHwnd);
 
   surfaceWindow.loadURL('about:blank');
+}
+
+/**
+ * 创建全屏播放状态栏窗口。
+ *
+ * 与文件列表同样的理由：全屏时视频是 mpv 的原生子窗口，会盖住主窗口 HTML，
+ * 主窗口底部那条控制条在全屏下看不见，只能另开一个覆盖窗口。
+ * 样式直接复用 ../renderer/styles.css，保证与非全屏模式下的底部模块一致。
+ */
+function createControlsWindow() {
+  controlsWindow = new BrowserWindow({
+    parent: mainWindow,
+    frame: false,
+    transparent: true,
+    show: false,
+    skipTaskbar: true,
+    focusable: true,
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    closable: false,
+    hasShadow: false,
+    backgroundColor: '#00000000',
+    webPreferences: {
+      preload: path.join(__dirname, 'controls', 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+      backgroundThrottling: false,
+    },
+  });
+
+  controlsWindow.loadFile(path.join(__dirname, 'controls', 'index.html'));
+
+  controlsWindow.on('closed', () => {
+    controlsWindow = null;
+    controlsVisible = false;
+  });
+
+  controlsWindow.on('hide', () => logInfo('[controls] window hide event', 'visible=', controlsVisible));
+
+  console.log('[main] controls window created');
+}
+
+/** 状态栏应该占的矩形：全屏时是屏幕底部整条，否则不显示 */
+function controlsBounds() {
+  if (!isSurfaceFullscreen || !surfaceWindow || surfaceWindow.isDestroyed()) return null;
+  const d = screen.getDisplayMatching(surfaceWindow.getBounds()).bounds;
+  const h = Math.min(CONTROLS_HEIGHT, Math.round(d.height * 0.4));
+  return {
+    x: d.x,
+    y: d.y + d.height - h,
+    width: d.width,
+    height: h,
+  };
+}
+
+/** 摆正状态栏窗口（尺寸变化才真的 setBounds） */
+function layoutControls() {
+  if (!controlsWindow || controlsWindow.isDestroyed()) return;
+  const b = controlsBounds();
+  if (!b) return;
+  const key = `${b.x},${b.y},${b.width},${b.height}`;
+  if (key !== controlsRectKey) {
+    controlsRectKey = key;
+    controlsWindow.setBounds(b, false);
+  }
+}
+
+/** 显示状态栏 */
+function showControls(auto) {
+  if (!controlsWindow || controlsWindow.isDestroyed()) return;
+  if (!isSurfaceFullscreen) return;
+  if (controlsVisible) {
+    layoutControls();
+    return;
+  }
+  controlsVisible = true;
+  controlsRectKey = '';
+  layoutControls();
+  controlsWindow.showInactive();
+  try { controlsWindow.moveTop(); } catch { /* 个别平台不支持 */ }
+  // 让主窗口渲染进程开始推状态快照
+  notifyControlsShown(true);
+  logInfo('[controls] shown', auto ? '(auto)' : '');
+}
+
+/** 隐藏状态栏 */
+function hideControls(reason) {
+  if (!controlsWindow || controlsWindow.isDestroyed()) return;
+  if (!controlsVisible) return;
+  controlsVisible = false;
+  logInfo('[controls] hide', reason || '(unknown)');
+  controlsWindow.hide();
+  notifyControlsShown(false);
+}
+
+/** 切换（调试/快捷键用） */
+function toggleControls() {
+  if (controlsVisible) hideControls('toggle');
+  else showControls(false);
+}
+
+/** 通知主窗口渲染进程：状态栏显示状态变了（决定是否持续推快照） */
+function notifyControlsShown(visible) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  try {
+    mainWindow.webContents.send('player-event', { type: 'controls-shown', visible });
+  } catch { /* 窗口正在销毁 */ }
+  if (visible) {
+    // 立刻要一份，别等第一个 400ms 周期
+    try {
+      mainWindow.webContents.send('player-event', { type: 'controls-need-snapshot' });
+    } catch { /* 忽略 */ }
+  }
+}
+
+/** 把快照转发给状态栏窗口，并把它抬回顶层（防被视频原生子窗口盖住） */
+function emitControlsState(snapshot) {
+  if (!controlsWindow || controlsWindow.isDestroyed() || !controlsVisible) return;
+  try {
+    controlsWindow.webContents.send('controls-state', snapshot);
+  } catch { /* 窗口正在销毁 */ }
+  try { controlsWindow.moveTop(); } catch { /* 忽略 */ }
 }
 
 // ---------- 文件列表常量 ----------
@@ -767,6 +910,20 @@ function startPlaylistWatch() {
 
     const pt = screen.getCursorScreenPoint();
     const d = screen.getDisplayMatching(surfaceWindow.getBounds());
+
+    // ---- 下边缘：播放状态栏 ----
+    // 与右侧列表互相独立：各自按自己的判定显示/收起，互不影响。
+    if (!playlistDialogOpen) {
+      if (!controlsVisible) {
+        if (PlaylistModel.hitBottomEdge(pt, d.bounds, CONTROLS_EDGE_PX)) {
+          showControls(true);
+        }
+      } else if (controlsWindow && !controlsWindow.isDestroyed()) {
+        if (!PlaylistModel.insideList(pt, controlsWindow.getBounds(), CONTROLS_KEEP_MARGIN)) {
+          hideControls('fullscreen watch: pointer left bar');
+        }
+      }
+    }
 
     // 正在系统文件对话框里选文件：保持当前状态，别自动收起
     if (playlistDialogOpen) return;
@@ -1202,6 +1359,9 @@ function toggleFullscreen() {
   startPlaylistWatch();
   emitPlaylist();   // 让列表窗口把"退出全屏"按钮显示出来
 
+  // 状态栏：进入全屏后才可能被唤出，先摆好位置（不显示）
+  layoutControls();
+
   emitPlayerEvent({ type: 'fullscreen', fullscreen: true });
 }
 
@@ -1224,6 +1384,9 @@ function exitFullscreen() {
   stopPlaylistWatch();
   if (playlistVisible) layoutPlaylist();
   emitPlaylist();   // 让列表窗口把"退出全屏"按钮收起来
+
+  // 状态栏只在全屏有意义，退出时一定收起来
+  hideControls('exit fullscreen');
 }
 
 /**
@@ -1700,6 +1863,38 @@ function registerIpc() {
   // 列表窗口：就绪，把当前数据推过去
   ipcMain.on('playlist-ready', (event) => {
     emitPlaylist();
+  });
+
+  // ---------- IPC：全屏播放状态栏 ----------
+
+  // 状态栏窗口：就绪，通知主窗口马上推一份快照
+  ipcMain.on('controls-ready', () => {
+    notifyControlsShown(true);
+  });
+
+  // 渲染进程推来的状态快照：缓存并转发给状态栏窗口
+  ipcMain.handle('controls-state', (event, snapshot) => {
+    emitControlsState(snapshot);
+    return { ok: true };
+  });
+
+  // 状态栏窗口发来的控制命令：转给主窗口渲染进程执行（它才有完整状态）
+  ipcMain.on('controls-command', (event, name, arg) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (typeof name !== 'string' || !name) return;
+    try {
+      mainWindow.webContents.send('player-event', {
+        type: 'control-command',
+        name,
+        arg,
+      });
+    } catch { /* 忽略 */ }
+  });
+
+  // 状态栏窗口：用户点了"退出全屏"按钮走的是 control-command，
+  // 但主窗口可能在加载中，所以这里也接受直接请求，双保险。
+  ipcMain.on('controls-exit-fullscreen', () => {
+    if (isSurfaceFullscreen) exitFullscreen();
   });
 
   // 列表窗口：点条目的 ✕ —— 只从列表移除，不动文件
@@ -2427,8 +2622,9 @@ if (!gotSingleInstanceLock) {
     createMainWindow();
     createSurfaceWindow();
     registerIpc();
-    // 列表窗口要放在 registerIpc 之后：它的 preload 用同步 IPC 取语言
+    // 两个覆盖窗口都放在 registerIpc 之后：它们的 preload 用同步 IPC 取语言
     createPlaylistWindow();
+    createControlsWindow();
     buildMenu();
 
     // 渲染进程崩溃（不是 JS 报错，而是进程没了）：记日志，方便定位是 mpv 嵌入还是驱动问题
@@ -2450,6 +2646,7 @@ if (!gotSingleInstanceLock) {
         createMainWindow();
         createSurfaceWindow();
         createPlaylistWindow();
+        createControlsWindow();
       }
     });
   });
@@ -2471,6 +2668,10 @@ if (!gotSingleInstanceLock) {
       playlistWindow.destroy();
     }
     playlistWindow = null;
+    if (controlsWindow && !controlsWindow.isDestroyed()) {
+      controlsWindow.destroy();
+    }
+    controlsWindow = null;
     if (settings) settings.save();
     if (mpvClient) {
       mpvClient.close();
