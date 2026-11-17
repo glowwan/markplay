@@ -38,6 +38,7 @@ const { SUPPORTED, createTranslator, normalize, setActiveLanguage } = require('.
 const PlaylistModel = require('./playlist-model');
 const Resume = require('./resume');
 const RevStep = require('./rev-step');
+const Remux = require('./remux');
 const dictZh = require('./locales/zh-CN');
 const dictEn = require('./locales/en-US');
 
@@ -131,6 +132,118 @@ let lastResumeSaveAt = 0;
 const RESUME_SAVE_INTERVAL_MS = 5000;
 /** 当前视频是否已经播到结尾（播完后不再写记忆点） */
 let videoFinished = false;
+
+// ---------- 为无索引容器建立索引（转封装） ----------
+
+/** 是否正在转封装，避免并发 */
+let remuxing = false;
+
+/** sidecar 路径（视频同目录同名 .markplay.json） */
+function sidecarPathFor(videoPath) {
+  return `${videoPath}.markplay.json`;
+}
+
+/**
+ * 把当前视频流拷贝转封装成 MP4（不重编码、不改画质），从而获得 seek 索引。
+ *
+ * 为什么要做：MPEG-TS 没有索引，mpv 往回 seek 只能落在关键帧上，
+ * 倒放会退化成"两秒一跳"（见 src/rev-step.js 的实测记录）。
+ * 转封装后精确 seek 恢复，倒放回到 0.2 秒一小步。
+ *
+ * @param {string} [targetPath] 要处理的文件，缺省为当前视频
+ * @returns {Promise<{ok: boolean, output?: string, error?: string, canceled?: boolean}>}
+ */
+async function remuxForIndex(targetPath) {
+  const input = targetPath || currentVideoPath;
+  if (!input || typeof input !== 'string') {
+    return { ok: false, error: t('errors.noVideo') };
+  }
+  if (!fs.existsSync(input)) {
+    return { ok: false, error: t('open.notFound', { path: input }) };
+  }
+  if (!Remux.needsIndex(input)) {
+    return { ok: false, error: t('remux.notNeeded') };
+  }
+  if (remuxing) {
+    return { ok: false, error: t('remux.busy') };
+  }
+
+  const output = Remux.buildOutputPath(input, (p) => fs.existsSync(p));
+  remuxing = true;
+  emitPlayerEvent({ type: 'remux-start', input, output });
+
+  try {
+    // 先问时长，用于进度百分比
+    const dur = currentVideoPath === input ? currentDuration : 0;
+    await runFfmpegRemux(input, output, dur);
+  } catch (err) {
+    remuxing = false;
+    // 失败时清掉半成品
+    try { if (fs.existsSync(output)) fs.unlinkSync(output); } catch { /* 忽略 */ }
+    emitPlayerEvent({ type: 'remux-error', message: err.message });
+    return { ok: false, error: err.message };
+  }
+
+  remuxing = false;
+
+  // 标记文件跟着走：把原视频的 sidecar 复制一份给新文件
+  let sidecarCopied = false;
+  try {
+    const oldSidecar = sidecarPathFor(input);
+    if (fs.existsSync(oldSidecar)) {
+      await fsp.copyFile(oldSidecar, sidecarPathFor(output));
+      sidecarCopied = true;
+    }
+  } catch (err) {
+    logWarn('[remux] 复制标记文件失败:', err.message);
+  }
+
+  logInfo('[remux] done', input, '->', output, 'sidecar', sidecarCopied);
+  emitPlayerEvent({ type: 'remux-done', input, output, sidecarCopied });
+  return { ok: true, output, sidecarCopied };
+}
+
+/**
+ * 跑一次 ffmpeg 流拷贝。
+ * @param {string} input
+ * @param {string} output
+ * @param {number} durationSec 用于进度
+ * @returns {Promise<void>}
+ */
+function runFfmpegRemux(input, output, durationSec) {
+  return new Promise((resolve, reject) => {
+    const ffmpegExe = resolveBin('ffmpeg.exe');
+    const args = Remux.remuxArgs(input, output).concat(['-progress', 'pipe:1', '-nostats']);
+    const proc = spawn(ffmpegExe, args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    let lastPct = -1;
+
+    if (proc.stdout) {
+      proc.stdout.setEncoding('utf8');
+      proc.stdout.on('data', (chunk) => {
+        for (const line of String(chunk).split('\n')) {
+          const pct = Remux.parseProgressPercent(line, durationSec);
+          if (pct !== null && pct !== lastPct) {
+            lastPct = pct;
+            emitPlayerEvent({ type: 'remux-progress', percent: pct });
+          }
+        }
+      });
+    }
+    if (proc.stderr) {
+      proc.stderr.setEncoding('utf8');
+      proc.stderr.on('data', (chunk) => {
+        const text = String(chunk).trim();
+        if (text) logWarn('[remux]', text.slice(0, 400));
+      });
+    }
+
+    proc.on('error', (err) => reject(new Error(t('errors.ffmpegStart', { msg: err.message }))));
+    proc.on('close', (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(t('errors.ffmpegCode', { code })));
+    });
+  });
+}
 
 // ---------- 全屏播放状态栏 ----------
 /** @type {BrowserWindow|null} 状态栏窗口 */
@@ -1924,6 +2037,9 @@ function registerIpc() {
     emitPlaylist();
   });
 
+  // 为当前（或指定）视频建立索引：流拷贝转封装成 MP4
+  ipcMain.handle('remux-index', (event, targetPath) => remuxForIndex(targetPath));
+
   // ---------- IPC：全屏播放状态栏 ----------
 
   // 状态栏窗口：就绪，通知主窗口马上推一份快照
@@ -2499,6 +2615,14 @@ function buildMenu() {
             if (mainWindow && !mainWindow.isDestroyed()) {
               mainWindow.webContents.send('player-event', { type: 'backup-sidecar' });
             }
+          },
+        },
+        {
+          label: t('menu.remuxIndex'),
+          enabled: !!currentVideoPath && !remuxing,
+          click: async () => {
+            const r = await remuxForIndex();
+            if (r.ok && r.output) requestOpenFile(r.output);
           },
         },
         {

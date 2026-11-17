@@ -16,6 +16,8 @@ require('./playlist-watch.test.js');
 require('./controls-bar.test.js');
 require('./resume.test.js');
 require('./rev-step.test.js');
+require('./remux.test.js');
+require('./remux-wiring.test.js');
 require('./i18n.test.js');
 require('./i18n-coverage.test.js');
 require('./logger.test.js');

@@ -31,7 +31,8 @@ module.exports = {
     "about": "About MarkPlay",
     "language": "Language / 语言",
     "view": "View",
-    "fileList": "File List"
+    "fileList": "File List",
+    "remuxIndex": "Build seek index for this video (remux to MP4, no re-encode)"
   },
   "dialog": {
     "openVideoTitle": "Open Video File",
@@ -241,7 +242,8 @@ module.exports = {
     "countBadge": " ({n})",
     "playlistDesc": "File list (Ctrl+L): videos opened in bulk live here",
     "startFromBeginning": "Start over",
-    "exitFullscreenDesc": "Exit fullscreen (Esc)"
+    "exitFullscreenDesc": "Exit fullscreen (Esc)",
+    "buildIndex": "Build index"
   },
   "status": {
     "readyVersion": "Ready · MarkPlay {version}",
@@ -327,7 +329,12 @@ module.exports = {
     "resumedToast": "You stopped at {tc} — jumped back there",
     "restartFromBeginning": "Restarted from the beginning",
     "revCoarse": "This format has no seek index — reverse steps by keyframe (~{step}s per step)",
-    "revUnsupported": "Reverse playback is not supported for this file (backward seek has no effect)"
+    "revUnsupported": "Reverse playback is not supported for this file (backward seek has no effect)",
+    "remuxing": "Building seek index (stream copy, no re-encode)…",
+    "remuxProgress": "Building seek index… {percent}%",
+    "remuxDone": "Index built: {name}",
+    "remuxFailed": "Failed to build index: {msg}",
+    "revCoarseToast": "No seek index in this format — reverse jumps ~{step}s. Build an index for smooth reverse"
   },
   "clipLabels": {
     "clip": "Clip",
@@ -351,5 +358,9 @@ module.exports = {
   },
   "controls": {
     "title": "Playback Bar"
+  },
+  "remux": {
+    "notNeeded": "This container already has a seek index — no remux needed",
+    "busy": "A remux is already running, please wait"
   }
 };

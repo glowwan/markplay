@@ -31,7 +31,8 @@ module.exports = {
     "about": "关于 MarkPlay",
     "language": "语言 / Language",
     "view": "视图",
-    "fileList": "文件列表"
+    "fileList": "文件列表",
+    "remuxIndex": "为当前视频建立索引（转封装 MP4，不重编码）"
   },
   "dialog": {
     "openVideoTitle": "打开视频文件",
@@ -241,7 +242,8 @@ module.exports = {
     "countBadge": "（{n}）",
     "playlistDesc": "文件列表（Ctrl+L）：批量打开的视频都在这里",
     "startFromBeginning": "从头开始",
-    "exitFullscreenDesc": "退出全屏 (Esc)"
+    "exitFullscreenDesc": "退出全屏 (Esc)",
+    "buildIndex": "建立索引"
   },
   "status": {
     "readyVersion": "就绪 · MarkPlay {version}",
@@ -327,7 +329,12 @@ module.exports = {
     "resumedToast": "上次看到 {tc}，已跳回该处",
     "restartFromBeginning": "已从头开始播放",
     "revCoarse": "该格式无索引，倒放改为按关键帧跳进（约 {step} 秒一跳）",
-    "revUnsupported": "这个文件的格式不支持倒放（往回 seek 无反应）"
+    "revUnsupported": "这个文件的格式不支持倒放（往回 seek 无反应）",
+    "remuxing": "正在建立索引（流拷贝，不改画质）…",
+    "remuxProgress": "正在建立索引… {percent}%",
+    "remuxDone": "索引已建立：{name}",
+    "remuxFailed": "建立索引失败：{msg}",
+    "revCoarseToast": "该格式无索引，倒放约 {step} 秒一跳。建立索引后可恢复平滑倒放"
   },
   "clipLabels": {
     "clip": "剪辑",
@@ -351,5 +358,9 @@ module.exports = {
   },
   "controls": {
     "title": "播放状态栏"
+  },
+  "remux": {
+    "notNeeded": "这个格式已带索引，不需要转封装",
+    "busy": "正在转封装，请稍候"
   }
 };

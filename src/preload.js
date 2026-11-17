@@ -102,6 +102,14 @@ contextBridge.exposeInMainWorld('markplay', {
   openVideosFromPaths: (paths) => ipcRenderer.invoke('open-videos-from-paths', paths),
 
   /**
+   * 为当前（或指定）视频建立索引：流拷贝转封装成 MP4，不重编码。
+   * 转完会返回新文件路径，界面可以直接切过去。
+   * @param {string} [targetPath] 缺省为当前视频
+   * @returns {Promise<{ok: boolean, output?: string, error?: string, sidecarCopied?: boolean}>}
+   */
+  remuxIndex: (targetPath) => ipcRenderer.invoke('remux-index', targetPath),
+
+  /**
    * 推送全屏播放状态栏的状态快照（标记 / 区间 / 转场 / 视图范围等）。
    * 状态栏窗口没有 Markers / TimelineView，这些数据只能由这里提供。
    * @param {object} snapshot

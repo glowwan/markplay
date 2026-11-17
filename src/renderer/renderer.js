@@ -717,6 +717,24 @@
     }
   }
 
+  /** 对当前视频做一次"流拷贝转封装"，换来精确 seek（倒放更平滑） */
+  function remuxForIndex() {
+    if (!state.videoPath) {
+      status(I18n.t('errors.noVideo'), 'error');
+      return;
+    }
+    window.markplay.remuxIndex(state.videoPath).then(function (r) {
+      if (r && r.ok && r.output) {
+        loadVideo(r.output);
+      } else if (r && r.error) {
+        status(I18n.t('status.remuxFailed', { msg: r.error }), 'error');
+        UI.toast(I18n.t('status.remuxFailed', { msg: r.error }), { kind: 'error' });
+      }
+    }).catch(function (err) {
+      status(I18n.t('status.remuxFailed', { msg: err && err.message ? err.message : String(err) }), 'error');
+    });
+  }
+
   // ---------- 全屏播放状态栏：执行命令 ----------
 
   /**
@@ -1334,6 +1352,29 @@
           else if (ev.action === 'out') zoomStep(false);
           else zoomFit();
           break;
+        case 'remux-start':
+          showLoading(true, I18n.t('status.remuxing'));
+          status(I18n.t('status.remuxing'));
+          break;
+        case 'remux-progress':
+          showLoading(true, I18n.t('status.remuxProgress', { percent: ev.percent }));
+          break;
+        case 'remux-done':
+          showLoading(false);
+          status(I18n.t('status.remuxDone', { name: basename(ev.output) }), 'ok');
+          UI.toast(I18n.t('status.remuxDone', { name: basename(ev.output) }), {
+            kind: 'success',
+            actionLabel: I18n.t('ui.revealInFolder'),
+            onAction: function () {
+              window.markplay.showItemInFolder(ev.output).catch(function () {});
+            },
+          });
+          break;
+        case 'remux-error':
+          showLoading(false);
+          status(I18n.t('status.remuxFailed', { msg: ev.message }), 'error');
+          UI.toast(I18n.t('status.remuxFailed', { msg: ev.message }), { kind: 'error' });
+          break;
         case 'rev-coarse':
           // 倒放退化成"按关键帧大步跳"（TS 这类无索引格式）。
           // 不说明的话用户会以为倒放坏了。
@@ -1344,6 +1385,17 @@
             status(I18n.t('status.revCoarse', {
               step: (Number(ev.step) || 0).toFixed(1),
             }));
+            // 一键建立索引：转封装后倒放能回到 0.2 秒一小步
+            UI.toast(I18n.t('status.revCoarseToast', {
+              step: (Number(ev.step) || 0).toFixed(1),
+            }), {
+              kind: 'info',
+              duration: 9000,
+              actionLabel: I18n.t('ui.buildIndex'),
+              onAction: function () {
+                remuxForIndex();
+              },
+            });
           }
           break;
         case 'controls-shown':

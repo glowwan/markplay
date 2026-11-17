@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078d4.svg)](#requirements)
-[![Version](https://img.shields.io/badge/version-v1.12.1-green.svg)](#)
+[![Version](https://img.shields.io/badge/version-v1.13.0-green.svg)](#)
 
 [中文](README.md) | **English**
 
@@ -200,7 +200,7 @@ $env:ELECTRON_BUILDER_BINARIES_MIRROR = "https://npmmirror.com/mirrors/electron-
 2. **The video surface is a native child window** — HTML can't be drawn on top of it, so the control bar sits below the video instead of floating over it.
 3. **Scrubbing feel needs real-device tuning** — trackpad drivers differ widely.
 4. **`-c copy` cuts snap to keyframes** — the cut point may be off by a few tenths of a second from your in/out. Re-encoding is frame-accurate, at the cost of a second compression pass.
-5. **2x reverse is simulated** — mpv doesn't support negative playback speed, so it pauses and seeks backwards. For formats without a seek index (**MPEG-TS**), backward seeks can only land on keyframes, so it degrades to roughly 2-second jumps and says so once; that is a format limit, not a hang.
+5. **2x reverse is simulated** — mpv doesn't support negative playback speed, so it pauses and seeks backwards. For formats without a seek index (**MPEG-TS**), backward seeks can only land on keyframes, so it degrades to roughly 2-second jumps and says so once, offering a **Build index** button (stream-copy remux to MP4, no re-encode) that restores smooth reverse.
 6. **Undo covers marker/range edits only** — cutting and exporting are not undoable.
 7. **EDL is non-drop-frame** — 29.97 footage is counted at a nominal 30fps, giving ~0.1% drift on long timelines.
 
