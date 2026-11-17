@@ -1416,24 +1416,6 @@ function handleSurfaceClick(which) {
     onLeftSingleClick();
   }, clickGesture.dblMs + 10);
 }
-function handleSurfaceClick(which) {
-  const now = Date.now();
-  if (now - lastSurfaceClickAt < 300) return; // 双路径去重
-  lastSurfaceClickAt = now;
-  // 点过 mpv 的原生画面后，键盘焦点可能落在 mpv 子窗口上，
-  // 导致 Space / A / B / Ctrl+0 等快捷键失效。这里把焦点抢回主窗口。
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    try {
-      mainWindow.focus();
-      mainWindow.webContents.focus();
-    } catch { /* 忽略 */ }
-  }
-  if (which === 'right') {
-    setSpeedMode(speedMode === 'rev2x' ? 'normal' : 'rev2x');
-  } else {
-    setSpeedMode(speedMode === 'fwd2x' ? 'normal' : 'fwd2x');
-  }
-}
 
 /**
  * 切换速度模式。
