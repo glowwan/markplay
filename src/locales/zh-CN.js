@@ -325,7 +325,9 @@ module.exports = {
     "playlistOpened": "已加入文件列表：{n} 个文件，正在播放第 1 个",
     "resumed": "已从上次位置继续：{tc}",
     "resumedToast": "上次看到 {tc}，已跳回该处",
-    "restartFromBeginning": "已从头开始播放"
+    "restartFromBeginning": "已从头开始播放",
+    "revCoarse": "该格式无索引，倒放改为按关键帧跳进（约 {step} 秒一跳）",
+    "revUnsupported": "这个文件的格式不支持倒放（往回 seek 无反应）"
   },
   "clipLabels": {
     "clip": "剪辑",

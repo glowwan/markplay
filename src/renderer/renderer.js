@@ -1334,6 +1334,18 @@
           else if (ev.action === 'out') zoomStep(false);
           else zoomFit();
           break;
+        case 'rev-coarse':
+          // 倒放退化成"按关键帧大步跳"（TS 这类无索引格式）。
+          // 不说明的话用户会以为倒放坏了。
+          if (ev.failed) {
+            status(I18n.t('status.revUnsupported'), 'error');
+            UI.toast(I18n.t('status.revUnsupported'), { kind: 'error' });
+          } else {
+            status(I18n.t('status.revCoarse', {
+              step: (Number(ev.step) || 0).toFixed(1),
+            }));
+          }
+          break;
         case 'controls-shown':
           // 状态栏显示中才持续推快照，避免平时无谓的 IPC
           setControlsPushing(ev.visible === true);

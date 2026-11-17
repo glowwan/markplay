@@ -98,3 +98,35 @@ test('推数据后会把列表窗口抬回顶层（防被视频窗口盖住）',
   assert.ok(raise.includes('moveTop()'), 'raisePlaylist 应使用 moveTop()');
   assert.ok(!/setAlwaysOnTop\(true/.test(raise), '不应无脑 setAlwaysOnTop：那会让列表压住其它应用');
 });
+
+// ---------------------------------------------------------------- 倒放自适应（v1.12.1）
+
+test('倒放走自适应步长模块，不再硬编码 0.2 秒', () => {
+  const rev = bodyOf('startRevTimer');
+  assert.ok(rev.includes('RevStep.createState'), '应创建自适应状态');
+  assert.ok(rev.includes('RevStep.observe'), '应按实测位移更新步长');
+  assert.ok(!/const step = config\.REV2X_STEP/.test(rev), '不应再用固定步长');
+  assert.ok(rev.includes('revState.step'), 'seek 应使用自适应步长');
+});
+
+test('倒放间隔也自适应（保持平均 2x）', () => {
+  const rev = bodyOf('startRevTimer');
+  assert.ok(rev.includes('revState.interval'), '定时器间隔应跟随自适应结果');
+});
+
+test('倒放能识别"这个文件退不动"并收尾', () => {
+  const rev = bodyOf('startRevTimer');
+  assert.ok(rev.includes('RevStep.isExhausted'), '应检查是否没救');
+  assert.ok(rev.includes("type: 'rev-coarse'"), '应通知渲染进程给出说明');
+});
+
+test('倒放退化提示只发一次，且用实测位移', () => {
+  const rev = bodyOf('startRevTimer');
+  assert.ok(rev.includes('coarseHintSent'), '应有"只发一次"的标志');
+  assert.ok(/moved >= 0\.5/.test(rev), '应按实测位移（>=0.5s）判断是否算粗粒度');
+});
+
+test('退出倒放要清掉自适应状态', () => {
+  const stop = bodyOf('stopRevTimer');
+  assert.ok(stop.includes('revState = null'), 'stopRevTimer 应重置 revState');
+});

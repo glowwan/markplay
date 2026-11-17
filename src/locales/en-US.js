@@ -325,7 +325,9 @@ module.exports = {
     "playlistOpened": "Added {n} files to the list; playing the first one",
     "resumed": "Resumed from last position: {tc}",
     "resumedToast": "You stopped at {tc} — jumped back there",
-    "restartFromBeginning": "Restarted from the beginning"
+    "restartFromBeginning": "Restarted from the beginning",
+    "revCoarse": "This format has no seek index — reverse steps by keyframe (~{step}s per step)",
+    "revUnsupported": "Reverse playback is not supported for this file (backward seek has no effect)"
   },
   "clipLabels": {
     "clip": "Clip",

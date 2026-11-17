@@ -37,6 +37,7 @@ const { backupPathFor, isBackupOf, pickBackupsToDelete } = require('./sidecar-ba
 const { SUPPORTED, createTranslator, normalize, setActiveLanguage } = require('./i18n');
 const PlaylistModel = require('./playlist-model');
 const Resume = require('./resume');
+const RevStep = require('./rev-step');
 const dictZh = require('./locales/zh-CN');
 const dictEn = require('./locales/en-US');
 
@@ -179,6 +180,8 @@ let resumePaused = false;
 let revTimer = null;
 /** 倒放链条代号：重启/停止时递增，旧链自检后退出 */
 let revSeq = 0;
+/** 倒放的自适应步长状态（每次进入倒放重新创建） */
+let revState = null;
 /** 视频画面点击去重：mpv input.conf 与 surface-preload 双路径，300ms 内只算一次 */
 let lastSurfaceClickAt = 0;
 /** 视频子窗口是否全屏 */
@@ -1245,49 +1248,105 @@ function stopRevTimer() {
     clearTimeout(revTimer);
     revTimer = null;
   }
+  revState = null;
   // 递增代号：正在执行的旧 tick 回来时发现代号变了就自行退出，不会出现两条链
   revSeq += 1;
 }
 
 /**
- * 2x 倒放模拟：暂停状态下定时精确回退，到 0 自动停住。
+ * 2x 倒放模拟：暂停状态下定时往回 seek，到 0 自动停住。
  *
  * 用"await 完一次 seek 再排下一次"的链式 setTimeout，而不是 setInterval：
  * exact seek 在长 GOP 上可能需要几百毫秒，setInterval 会持续堆积命令，
  * 最终触发 5 秒超时、倒放越来越卡。
+ *
+ * **步长是自适应的**：MPEG-TS 这类没有索引的容器，mpv 只能按关键帧对齐，
+ * 固定的 0.2 秒步长会被量化成一个关键帧距离 —— 表现就是"倒放完全没反应"
+ * （实测 2 秒 GOP 的 TS：步长 ≤2 秒位置不动，≥3 秒才一动跳 2 秒）。
+ * 所以这里用"上一次是否真的退了"来调整步长：退不动就翻倍，动了就按实际
+ * 位移折算定时器间隔，保证平均速度仍是 2x。MP4 上 moved 恒等于步长，
+ * 行为与改动前完全一致（见 tests/rev-step.test.js）。
  */
 function startRevTimer() {
   stopRevTimer();
   const seq = revSeq;
-  const step = config.REV2X_STEP || 0.2;
-  const interval = config.REV2X_INTERVAL_MS || 100;
+  revState = RevStep.createState({
+    baseStep: config.REV2X_STEP || 0.2,
+    baseInterval: config.REV2X_INTERVAL_MS || 100,
+  });
+
+  /** 上一轮读到的位置；第一轮没有"上一次"，跳过位移判定 */
+  let prevPos = null;
+  /** 粗粒度提示只发一次 */
+  let coarseHintSent = false;
 
   const tick = async () => {
     revTimer = null;
-    if (seq !== revSeq || !mpvClient) return;
+    if (seq !== revSeq || !mpvClient || !revState) return;
+
+    let pos = null;
     try {
       const r = await mpvClient.send(['get_property', 'time-pos']);
-      const pos = typeof r.data === 'number' ? r.data : 0;
-      if (pos <= step + 0.05) {
-        // 到头：停在 0，保持暂停
-        await mpvClient.send(['set_property', 'time-pos', 0]).catch(() => {});
+      pos = typeof r.data === 'number' ? r.data : null;
+    } catch {
+      pos = null;
+    }
+    if (pos === null) {
+      // 读不到位置（文件还没就绪/已卸载）：稍后再试
+      if (seq === revSeq && speedMode === 'rev2x') revTimer = setTimeout(tick, revState.baseInterval);
+      return;
+    }
+
+    // 用"上一轮位置 - 本轮位置"衡量上一步到底退动了多少
+    if (prevPos !== null) {
+      const moved = prevPos - pos;
+      const before = revState;
+      revState = RevStep.observe(revState, moved);
+      if (revState.step !== before.step || revState.interval !== before.interval) {
+        logInfo('[rev] step', revState.step, 'interval', revState.interval, 'moved', Number(moved.toFixed(3)));
+      }
+      // 粗粒度提示：等某一步真的跳了 >= 0.5 秒再报，数字才是"每次跳多少"。
+      // 用步长报会误导——步长 1.6 时实际一跳往往是 2 秒（关键帧对齐）。
+      if (!coarseHintSent && moved >= 0.5) {
+        coarseHintSent = true;
+        logInfo('[rev] coarse stepping, ~', Number(moved.toFixed(2)), 's per step');
+        emitPlayerEvent({ type: 'rev-coarse', step: Number(moved.toFixed(2)) });
+      }
+      if (RevStep.isExhausted(revState)) {
+        logWarn('[rev] 该文件无法倒放（步长到顶仍退不动）');
         await mpvClient.send(['set_property', 'speed', 1]).catch(() => {});
         speedMode = 'normal';
         resumePaused = true;
+        emitPlayerEvent({ type: 'rev-coarse', step: revState.step, failed: true });
         emitPlayerEvent({ type: 'speed-mode', mode: 'normal' });
         return;
       }
-      await mpvClient.send(['seek', -step, 'relative+exact']);
-    } catch {
-      /* 单次失败不致命，下一次继续 */
     }
+
+    if (RevStep.reachedStart(revState, pos)) {
+      // 到头：停在 0，保持暂停
+      await mpvClient.send(['set_property', 'time-pos', 0]).catch(() => {});
+      await mpvClient.send(['set_property', 'speed', 1]).catch(() => {});
+      speedMode = 'normal';
+      resumePaused = true;
+      emitPlayerEvent({ type: 'speed-mode', mode: 'normal' });
+      return;
+    }
+
+    prevPos = pos;
+    try {
+      await mpvClient.send(['seek', -revState.step, 'relative+exact']);
+    } catch {
+      /* 单次失败不致命，下一次继续（位移会被判定为 0，从而放大步长） */
+    }
+
     // 期间可能已被 setSpeedMode('normal') 取消
     if (seq === revSeq && speedMode === 'rev2x') {
-      revTimer = setTimeout(tick, interval);
+      revTimer = setTimeout(tick, revState.interval);
     }
   };
 
-  revTimer = setTimeout(tick, interval);
+  revTimer = setTimeout(tick, revState.baseInterval);
 }
 
 /**
