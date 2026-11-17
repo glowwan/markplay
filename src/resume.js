@@ -5,19 +5,15 @@
  *
  * 设计取舍：
  *  - 以**绝对路径**（小写归一）为键，存"上次看到哪儿"；
- *  - 只记秒数 + 视频总长 + 时间戳，不记别的，条目很小；
+ *  - 只记秒数 + 视频总长 + 时间戳，条目很小；
  *  - 有上限、按时间戳淘汰，避免 settings.json 越滚越大；
- *  - "看到结尾"的不记（下次打开应当从头看，而不是停在最后一秒）。
+ *  - **"看完了"只由真实播放结束（EOF）决定**，本模块不做任何"离结尾多少秒算看完"
+ *    的猜测——用户停在片尾前几秒也是"看到这里了"，下次就该从那里继续。
+ *    EOF 时由主进程调用 clearEntry 清掉记录。
  */
 
-/** 低于这个秒数不记（刚打开就关掉，没必要） */
+/** 低于这个秒数不记（刚打开就关掉，没必要续播） */
 const MIN_SECONDS = 8;
-/** 写入时：距离结尾不足这个秒数就不记（视为已看完） */
-const WRITE_END_MARGIN = 3;
-/** 续播时：距离结尾不足这个秒数就不续播（比写入更严格，容忍几秒误差） */
-const RESUME_END_MARGIN = 15;
-/** 兼容旧名字（= 写入容差） */
-const END_MARGIN = WRITE_END_MARGIN;
 /** 最多保留多少条记录 */
 const MAX_ENTRIES = 300;
 
@@ -34,11 +30,11 @@ function pathKey(p) {
 function normalizeEntry(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const t = Number(raw.t);
+  if (!Number.isFinite(t) || t < 0) return null;
   const dur = Number(raw.dur);
   const at = Number(raw.at);
-  if (!Number.isFinite(t) || t < 0) return null;
   return {
-    t: Math.max(0, Math.round(t * 100) / 100),
+    t: Math.round(t * 100) / 100,
     dur: Number.isFinite(dur) && dur > 0 ? Math.round(dur * 100) / 100 : 0,
     at: Number.isFinite(at) && at > 0 ? Math.round(at) : 0,
   };
@@ -68,7 +64,11 @@ function normalizeMap(raw) {
 }
 
 /**
- * 写到表里（就地修改并返回），顺手按时间淘汰。
+ * 写到表里（就地修改），顺手按时间淘汰。
+ *
+ * 注意：这里**不做**"快到结尾就不记"的判断——那属于播放语义，
+ * 由主进程在收到 EOF 时清记录。
+ *
  * @param {Record<string, any>} map
  * @param {string} filePath
  * @param {number} t 当前播放位置（秒）
@@ -82,21 +82,12 @@ function putEntry(map, filePath, t, dur, now) {
   const pos = Number(t);
   if (!Number.isFinite(pos) || pos < 0) return false;
 
-  const total = Number(dur);
   const key = pathKey(filePath);
-
-  // 时长未知时的兜底：如果之前记过这支视频的时长，就拿它来做"是否到结尾"的判断。
-  // 否则调用方一旦漏传 dur（比如换片时先清了时长），片尾位置就会被存成续播点，
-  // 下次打开直接停在最后一秒。这条防御让模块不再依赖调用顺序。
+  const total = Number(dur);
+  // 时长未知时沿用已有记录的时长，避免把有用的信息覆盖成 0
   const prev = map[key];
   const prevDur = prev && Number.isFinite(prev.dur) && prev.dur > 0 ? prev.dur : 0;
   const effectiveDur = (Number.isFinite(total) && total > 0) ? total : prevDur;
-
-  // 看到结尾（或更后）不记：下次打开应该从头看
-  if (effectiveDur > 0 && pos >= effectiveDur - WRITE_END_MARGIN) {
-    delete map[key];
-    return false;
-  }
 
   map[key] = {
     t: Math.round(pos * 100) / 100,
@@ -121,16 +112,14 @@ function putEntry(map, filePath, t, dur, now) {
  */
 function getEntry(map, filePath) {
   if (!map || typeof map !== 'object') return null;
-  const raw = map[pathKey(filePath)];
-  return normalizeEntry(raw);
+  return normalizeEntry(map[pathKey(filePath)]);
 }
 
 /**
  * 是否值得续播。
  *
- * 不满足下面任一条就返回 0（从头播）：
- *  - 有记录且位置 > MIN_SECONDS；
- *  - 没有总长信息，或位置明确还没到结尾附近（RESUME_END_MARGIN 比写入更严格）。
+ * 只有一条否决条件：位置太靠前（刚打开就关掉，续播没有意义）。
+ * 其余一律按记录的位置续播——包括停在片尾前几秒的情况。
  *
  * @param {any} entry
  * @returns {number} 要跳到的秒数；0 表示不续播
@@ -139,11 +128,14 @@ function resumeAt(entry) {
   const e = normalizeEntry(entry);
   if (!e) return 0;
   if (e.t < MIN_SECONDS) return 0;
-  if (e.dur > 0 && e.t >= e.dur - RESUME_END_MARGIN) return 0;
   return e.t;
 }
 
-/** 删除某条（用户选择"从头开始"时） */
+/**
+ * 删除某条。
+ * 主进程在两个时机调用：播到结尾（EOF），用户点"从头开始"。
+ * @returns {boolean} 是否真的删了
+ */
 function clearEntry(map, filePath) {
   if (!map || typeof map !== 'object') return false;
   const k = pathKey(filePath);
@@ -153,11 +145,8 @@ function clearEntry(map, filePath) {
 }
 
 module.exports = {
-  END_MARGIN,
   MAX_ENTRIES,
   MIN_SECONDS,
-  RESUME_END_MARGIN,
-  WRITE_END_MARGIN,
   clearEntry,
   getEntry,
   normalizeEntry,
