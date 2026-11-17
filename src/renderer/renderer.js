@@ -432,6 +432,47 @@
   }
 
   /** 从 DataTransfer 抠文件路径：优先 files[0].path，兜底 text/uri-list */
+  /**
+   * 从拖放事件里取出**所有**本地路径（多选拖入时都用得到）。
+   * @param {DataTransfer} dt
+   * @returns {string[]}
+   */
+  function extractDropPaths(dt) {
+    if (!dt) return [];
+    var out = [];
+
+    // 1) File 对象自带 path（Electron 特有）
+    if (dt.files && dt.files.length) {
+      for (var i = 0; i < dt.files.length; i++) {
+        if (dt.files[i].path) out.push(dt.files[i].path);
+      }
+      if (out.length) return out;
+    }
+
+    // 2) text/uri-list（一行一个）
+    try {
+      var uri = dt.getData('text/uri-list') || '';
+      uri.split('\n').forEach(function (line) {
+        var s = line.trim();
+        if (!s || s.charAt(0) === '#') return;
+        if (s.indexOf('file://') !== 0) return;
+        var p = decodeURIComponent(new URL(s).pathname);
+        if (/^\/[a-zA-Z]:\//.test(p)) p = p.slice(1);
+        out.push(p);
+      });
+    } catch (_) { /* 忽略 */ }
+
+    // 3) 兜底：text/plain 里可能只有一条
+    if (!out.length) {
+      try {
+        var plain = (dt.getData('text/plain') || '').trim();
+        if (plain) out.push(plain);
+      } catch (_) { /* 忽略 */ }
+    }
+
+    return out;
+  }
+
   function extractDropPath(dt) {
     if (!dt) return null;
     if (dt.files && dt.files[0] && dt.files[0].path) return dt.files[0].path;
@@ -464,11 +505,27 @@
       e.preventDefault();
       dragDepth = 0;
       showDropHint(false);
-      var p = extractDropPath(e.dataTransfer);
-      if (!p) {
+      // 拖入多个文件时：交给主进程建列表，并打开第一个
+      var paths = extractDropPaths(e.dataTransfer);
+      if (!paths.length) {
         status(I18n.t('status.dragNotRecognized'), 'error');
         return;
       }
+      if (paths.length > 1) {
+        var mediaPaths = paths.filter(function (x) {
+          return SUBTITLE_EXTENSIONS.indexOf(extname(x)) < 0;
+        });
+        if (mediaPaths.length > 1) {
+          window.markplay.openVideosFromPaths(mediaPaths).then(function (r) {
+            if (r && r.count > 1) {
+              status(I18n.t('status.playlistOpened', { n: r.count }), 'ok');
+            }
+          }).catch(function () {});
+          return;
+        }
+        paths = mediaPaths.length ? mediaPaths : paths;
+      }
+      var p = paths[0];
       if (SUBTITLE_EXTENSIONS.indexOf(extname(p)) >= 0) {
         loadSubtitle(p);
         return;
@@ -531,8 +588,12 @@
   }
 
   function openFile() {
-    window.markplay.openFileDialog().then(function (p) {
-      if (p) loadVideo(p);
+    // 多选对话框：主进程负责建列表并打开第一个，这里只处理提示
+    window.markplay.openVideos().then(function (r) {
+      if (!r || r.canceled) return;
+      if (r.count > 1) {
+        status(I18n.t('status.playlistOpened', { n: r.count }), 'ok');
+      }
     }).catch(function (err) {
       status(I18n.t('status.openFailed', { msg: err && err.message ? err.message : String(err) }), 'error');
     });
@@ -557,6 +618,11 @@
   // 视频已载入后的 UI 刷新（对话框/拖放/菜单/视频窗口拖放共用）
   function afterVideoOpened(path) {
     state.videoPath = path;
+
+    // 告诉主进程当前文件变了，文件列表据此高亮（不在列表里会被追加进去）
+    if (window.markplay.notePlaylistCurrent) {
+      window.markplay.notePlaylistCurrent(path).catch(function () {});
+    }
     state.currentTime = 0;
     state.duration = 0;
     state.paused = true;
@@ -1119,6 +1185,12 @@
           // 文件正悬停在视频画面上：提示松开以打开
           showDropHint(true);
           break;
+        case 'playlist-state': {
+          // 主进程才是显隐的拥有者（全屏悬浮也会改它），图标跟着走
+          var pb = $('btn-playlist');
+          if (pb) pb.classList.toggle('active', ev.visible === true);
+          break;
+        }
         case 'zoom':
           if (ev.action === 'in') zoomStep(true);
           else if (ev.action === 'out') zoomStep(false);
@@ -1261,6 +1333,16 @@
     $('btn-fullscreen').addEventListener('click', function () {
       window.markplay.toggleFullscreen().catch(function () {});
     });
+
+    // 文件列表：图标点击 = 切换显示；真正的显隐由主进程决定
+    var playlistBtn = $('btn-playlist');
+    if (playlistBtn) {
+      playlistBtn.addEventListener('click', function () {
+        window.markplay.togglePlaylist().then(function (r) {
+          playlistBtn.classList.toggle('active', !!(r && r.visible));
+        }).catch(function () {});
+      });
+    }
     $('btn-speed-fwd').addEventListener('click', function () { toggleSpeed('fwd2x'); });
     $('btn-speed-rev').addEventListener('click', function () { toggleSpeed('rev2x'); });
     $('btn-loop').addEventListener('click', toggleLoop);

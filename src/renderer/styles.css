@@ -462,3 +462,10 @@ button:disabled, input:disabled, select:disabled {
   min-width: 42px;
   letter-spacing: .2px;
 }
+
+/* 文件列表按钮的激活态：列表正在显示时点亮 */
+.icon-btn.active {
+  background: rgba(64, 196, 255, .18);
+  border-color: rgba(64, 196, 255, .5);
+  color: #fff;
+}

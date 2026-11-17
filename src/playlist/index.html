@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title data-i18n="playlist.title">文件列表</title>
+<link rel="stylesheet" href="playlist.css">
+</head>
+<body>
+<div id="panel" class="panel">
+  <div class="head">
+    <span class="title" data-i18n="playlist.title">文件列表</span>
+    <span id="count" class="count"></span>
+    <button id="close" class="close" data-i18n-title="playlist.close" title="关闭文件列表">✕</button>
+  </div>
+  <ul id="list" class="list"></ul>
+  <div id="foot" class="foot" data-i18n="playlist.hint">点击切换视频 · 可拖入多个文件</div>
+</div>
+<script src="../renderer/i18n-apply.js"></script>
+<script src="playlist.js"></script>
+</body>
+</html>

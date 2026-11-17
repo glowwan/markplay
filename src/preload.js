@@ -85,10 +85,35 @@ contextBridge.exposeInMainWorld('markplay', {
   mpvGet: (prop) => ipcRenderer.invoke('mpv-get', prop),
 
   /**
-   * 弹出"打开视频文件"对话框。
-   * @returns {Promise<string|null>} 选中的文件路径；取消则返回 null
+   * 弹出"打开视频文件"对话框（支持多选）。
+   *
+   * 多选时主进程会直接建好文件列表并打开第一个文件，
+   * 渲染进程只需要知道这次选了几个（用来决定要不要提示）。
+   *
+   * @returns {Promise<{canceled: boolean, count: number, paths?: string[]}>}
    */
-  openFileDialog: () => ipcRenderer.invoke('open-file-dialog'),
+  openVideos: () => ipcRenderer.invoke('open-videos'),
+
+  /**
+   * 拖入多个本地文件时调用：主进程建文件列表并打开第一个。
+   * @param {string[]} paths
+   * @returns {Promise<{ok: boolean, count: number}>}
+   */
+  openVideosFromPaths: (paths) => ipcRenderer.invoke('open-videos-from-paths', paths),
+
+  /**
+   * 告诉主进程"这个文件已经载入成功"，文件列表据此移动高亮。
+   * 对话框 / 拖放 / 最近打开 / 列表点击 / 启动参数都会走到这里。
+   * @param {string} filePath
+   * @returns {Promise<{ok: boolean}>}
+   */
+  notePlaylistCurrent: (filePath) => ipcRenderer.invoke('playlist-note-current', filePath),
+
+  /**
+   * 切换文件列表显示。
+   * @returns {Promise<{ok: boolean, visible: boolean}>}
+   */
+  togglePlaylist: () => ipcRenderer.invoke('toggle-playlist'),
 
   /**
    * 加载视频：会懒启动 mpv 并通过 IPC 发送 loadfile。

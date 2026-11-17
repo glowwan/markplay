@@ -67,39 +67,48 @@ test('中文字典里没有残留英文整句（排除技术名词与快捷键�
   assert.deepEqual(bad, [], '这些中文条目看起来是英文：\n' + bad.join('\n'));
 });
 
-test('index.html 里没有未接 i18n 的中文文本节点', () => {
-  const html = fs.readFileSync(path.join(ROOT, 'src/renderer/index.html'), 'utf8');
+/** 所有要检查的页面 HTML */
+const PAGES_HTML = [
+  'src/renderer/index.html',
+  'src/playlist/index.html',
+];
 
+test('各页面 HTML 里没有未接 i18n 的中文文本节点', () => {
   /** 精确判断属性存在，避免 data-i18n 误匹配 data-i18n-title */
   const hasAttr = (tag, name) => new RegExp(`\\s${name}\\s*=`).test(tag);
-
   const bad = [];
-  const TEXT = />([^<>]+)</g;
-  let m;
-  while ((m = TEXT.exec(html)) !== null) {
-    const body = m[1];
-    if (!CJK.test(body)) continue;
-    if (/^\s*<!--/.test(body)) continue;
 
-    const lastOpen = html.lastIndexOf('<', m.index);
-    const close = html.indexOf('>', lastOpen);
-    const tag = html.slice(lastOpen, close + 1);
+  for (const rel of PAGES_HTML) {
+    const html = fs.readFileSync(path.join(ROOT, rel), 'utf8');
+    const TEXT = />([^<>]+)</g;
+    let m;
+    while ((m = TEXT.exec(html)) !== null) {
+      const body = m[1];
+      if (!CJK.test(body)) continue;
+      if (/^\s*<!--/.test(body)) continue;
 
-    if (hasAttr(tag, 'data-i18n')) continue;
-    // 语言切换按钮本身写「中/EN」是有意的
-    if (hasAttr(tag, 'id') && /id="btn-lang"/.test(tag)) continue;
+      const lastOpen = html.lastIndexOf('<', m.index);
+      const close = html.indexOf('>', lastOpen);
+      const tag = html.slice(lastOpen, close + 1);
 
-    const ln = html.slice(0, m.index).split('\n').length;
-    bad.push(`index.html:${ln}  ${body.trim().slice(0, 50)}`);
+      if (hasAttr(tag, 'data-i18n')) continue;
+      // 语言切换按钮本身写「中/EN」是有意的
+      if (hasAttr(tag, 'id') && /id="btn-lang"/.test(tag)) continue;
+
+      const ln = html.slice(0, m.index).split('\n').length;
+      bad.push(`${rel}:${ln}  ${body.trim().slice(0, 50)}`);
+    }
   }
+
   assert.deepEqual(bad, [], '这些中文文本节点缺 data-i18n：\n' + bad.join('\n'));
 });
 
-test('index.html 里没有未接 i18n 的中文 title / placeholder', () => {
-  const html = fs.readFileSync(path.join(ROOT, 'src/renderer/index.html'), 'utf8');
+test('各页面 HTML 里没有未接 i18n 的中文 title / placeholder', () => {
   const hasAttr = (tag, name) => new RegExp(`\\s${name}\\s*=`).test(tag);
 
   const bad = [];
+  for (const rel of PAGES_HTML) {
+  const html = fs.readFileSync(path.join(ROOT, rel), 'utf8');
   for (const [attr, marker] of [['title', 'data-i18n-title'], ['placeholder', 'data-i18n-placeholder']]) {
     const re = new RegExp(`\\s${attr}="([^"]*)"`, 'g');
     let m;
@@ -113,19 +122,22 @@ test('index.html 里没有未接 i18n 的中文 title / placeholder', () => {
       // 双语并列的说明性 title 可接受
       if (/[A-Za-z]/.test(value) && (value.includes('/') || /\bor\b/.test(value))) continue;
       const ln = html.slice(0, m.index).split('\n').length;
-      bad.push(`index.html:${ln}  ${attr}="${value.slice(0, 40)}"`);
+      bad.push(`${rel}:${ln}  ${attr}="${value.slice(0, 40)}"`);
     }
+  }
   }
   assert.deepEqual(bad, [], '这些属性缺对应 data-i18n-*：\n' + bad.join('\n'));
 });
 
 test('CSS 里没有写中文到 content 属性', () => {
-  const css = fs.readFileSync(path.join(ROOT, 'src/renderer/styles.css'), 'utf8');
   const bad = [];
-  for (const m of css.matchAll(/content:\s*([^;]+);/g)) {
-    if (CJK.test(m[1])) {
-      const ln = css.slice(0, m.index).split('\n').length;
-      bad.push(`styles.css:${ln}  ${m[1].trim().slice(0, 50)}`);
+  for (const rel of ['src/renderer/styles.css', 'src/playlist/playlist.css']) {
+    const css = fs.readFileSync(path.join(ROOT, rel), 'utf8');
+    for (const m of css.matchAll(/content:\s*([^;]+);/g)) {
+      if (CJK.test(m[1])) {
+        const ln = css.slice(0, m.index).split('\n').length;
+        bad.push(`${rel}:${ln}  ${m[1].trim().slice(0, 50)}`);
+      }
     }
   }
   assert.deepEqual(bad, [], 'CSS content 无法跟随语言切换，应改由 JS 渲染：\n' + bad.join('\n'));
@@ -137,6 +149,7 @@ test('渲染进程与主进程源码里没有硬编码中文文案', () => {
     'src/renderer/renderer.js', 'src/renderer/export.js', 'src/renderer/markers.js',
     'src/renderer/scrub.js', 'src/renderer/ui.js', 'src/renderer/scenes.js',
     'src/renderer/timeline-view.js', 'src/renderer/i18n-apply.js',
+    'src/playlist/playlist.js',
   ];
 
   /** 允许保留：日志、IME 键位别名、语言菜单里的母语标签 */

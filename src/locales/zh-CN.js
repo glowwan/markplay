@@ -29,7 +29,9 @@ module.exports = {
     "openLogFolder": "打开日志文件夹",
     "openDataFolder": "打开数据文件夹",
     "about": "关于 MarkPlay",
-    "language": "语言 / Language"
+    "language": "语言 / Language",
+    "view": "视图",
+    "fileList": "文件列表"
   },
   "dialog": {
     "openVideoTitle": "打开视频文件",
@@ -235,7 +237,8 @@ module.exports = {
     "langSwitchDesc": "切换界面语言（中文 / English）",
     "noMarkers": "暂无标记 — 播放时按 A / B / C / D / F / G 打点",
     "noRanges": "还没有区间 — 播到起点按 [ 设入点，到终点按 ] 建区间",
-    "countBadge": "（{n}）"
+    "countBadge": "（{n}）",
+    "playlistDesc": "文件列表（Ctrl+L）：批量打开的视频都在这里"
   },
   "status": {
     "readyVersion": "就绪 · MarkPlay {version}",
@@ -315,7 +318,8 @@ module.exports = {
     "playbackEnded": "播放结束",
     "dragNotRecognized": "拖放未识别到文件路径，请从文件资源管理器拖入",
     "loadingSubtitle": "正在加载字幕：{name} …",
-    "fullscreen": "视频全屏 / 退出"
+    "fullscreen": "视频全屏 / 退出",
+    "playlistOpened": "已加入文件列表：{n} 个文件，正在播放第 1 个"
   },
   "clipLabels": {
     "clip": "剪辑",
@@ -326,5 +330,12 @@ module.exports = {
     "switched": "界面语言已切换为「{name}」",
     "chinese": "中文",
     "english": "English"
+  },
+  "playlist": {
+    "title": "文件列表",
+    "count": "（{n}）",
+    "close": "关闭文件列表",
+    "hint": "点击切换视频 · 双击打开并关闭 · Esc 收起",
+    "empty": "还没有文件\n打开或拖入视频后会出现在这里"
   }
 };

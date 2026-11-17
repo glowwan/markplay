@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078d4.svg)](#requirements)
-[![Version](https://img.shields.io/badge/version-v1.8.2-green.svg)](#)
+[![Version](https://img.shields.io/badge/version-v1.9.0-green.svg)](#)
 
 [中文](README.md) | **English**
 
@@ -71,6 +71,7 @@ The control bar sits below the video rather than floating over it — the video 
 - **Fullscreen** — `F11` or ⛶, `ESC` to exit.
 - **Subtitles** — auto-loads same-named subtitle files; drop a `.srt` / `.ass` / `.vtt` into the window to attach manually.
 - **Chinese / English UI** — switch instantly from the Language menu or the `中/EN` button; no restart, no lost progress. Follows the system language on first run, then remembers your choice.
+- **File list (bulk open)** — select several videos at once, or drop a whole batch in. Hidden by default so it costs no screen space; open it from the View menu or the 🗂 button (`Ctrl+L`) and close it with ✕. In fullscreen it slides in when the pointer reaches the right edge of the screen and hides again when it leaves.
 
 **Markers & ranges**
 
@@ -123,6 +124,7 @@ The control bar sits below the video rather than floating over it — the video 
 | `F11` | Toggle video fullscreen (`ESC` also exits) |
 | `O` | Open a video file |
 | `E` | Scroll to the export panel |
+| `Ctrl+L` | Show / hide the file list |
 
 Single-key shortcuts yield to text input while a text field has focus.
 

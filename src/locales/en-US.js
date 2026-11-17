@@ -29,7 +29,9 @@ module.exports = {
     "openLogFolder": "Open Log Folder",
     "openDataFolder": "Open Data Folder",
     "about": "About MarkPlay",
-    "language": "Language / 语言"
+    "language": "Language / 语言",
+    "view": "View",
+    "fileList": "File List"
   },
   "dialog": {
     "openVideoTitle": "Open Video File",
@@ -235,7 +237,8 @@ module.exports = {
     "langSwitchDesc": "Switch interface language (English / 中文)",
     "noMarkers": "No markers yet — press A / B / C / D / F / G while playing",
     "noRanges": "No ranges yet — press [ at the in point, ] at the out point",
-    "countBadge": " ({n})"
+    "countBadge": " ({n})",
+    "playlistDesc": "File list (Ctrl+L): videos opened in bulk live here"
   },
   "status": {
     "readyVersion": "Ready · MarkPlay {version}",
@@ -315,7 +318,8 @@ module.exports = {
     "playbackEnded": "Playback finished",
     "dragNotRecognized": "Could not read a file path from the drop — drag from File Explorer",
     "loadingSubtitle": "Loading subtitle: {name} …",
-    "fullscreen": "Video fullscreen / exit"
+    "fullscreen": "Video fullscreen / exit",
+    "playlistOpened": "Added {n} files to the list; playing the first one"
   },
   "clipLabels": {
     "clip": "Clip",
@@ -326,5 +330,12 @@ module.exports = {
     "switched": "Interface language switched to \"{name}\"",
     "chinese": "Chinese",
     "english": "English"
+  },
+  "playlist": {
+    "title": "File List",
+    "count": " ({n})",
+    "close": "Close file list",
+    "hint": "Click to switch · double-click to open and close · Esc to hide",
+    "empty": "No files yet\nOpen or drop videos and they will show up here"
   }
 };

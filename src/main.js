@@ -27,6 +27,7 @@ const {
   SUBTITLE_EXTENSIONS,
   estimateVideoBitrate,
   findMediaArg,
+  isMediaPath,
   isSubtitlePath,
   parseSceneScores,
   reencodeArgs,
@@ -34,6 +35,7 @@ const {
 } = require('./media-utils');
 const { backupPathFor, isBackupOf, pickBackupsToDelete } = require('./sidecar-backup');
 const { SUPPORTED, createTranslator, normalize, setActiveLanguage } = require('./i18n');
+const PlaylistModel = require('./playlist-model');
 const dictZh = require('./locales/zh-CN');
 const dictEn = require('./locales/en-US');
 
@@ -101,6 +103,22 @@ let quitting = false;
 let settings = null;
 /** 上一次应用到视频子窗口的矩形键，避免 500ms 轮询时无意义地反复 setBounds */
 let surfaceRectKey = '';
+
+// ---------- 文件列表（播放列表） ----------
+/** @type {BrowserWindow|null} 文件列表窗口 */
+let playlistWindow = null;
+/** 列表是否处于显示状态 */
+let playlistVisible = false;
+/** 列表数据：[{ path, name, dir }] */
+let playlistItems = [];
+/** 当前播放项在列表里的下标，-1 表示不在列表里 */
+let playlistIndex = -1;
+/** 上一次应用的窗口矩形键 */
+let playlistRectKey = '';
+/** 全屏悬浮检测的轮询定时器 */
+let playlistWatchTimer = null;
+/** 文件对话框打开期间暂停自动隐藏 */
+let playlistDialogOpen = false;
 /** 启动参数里带的视频路径（双击关联文件 / 拖到 exe 上） */
 let startupFile = '';
 /** 当前视频路径（菜单"在文件夹中显示"用） */
@@ -320,7 +338,16 @@ function createMainWindow() {
   mainWindow.on('maximize', scheduleWindowSave);
   mainWindow.on('unmaximize', scheduleWindowSave);
 
+  // 窗口移动/缩放时把列表也带上（否则会留在原地）
+  mainWindow.on('move', () => { if (playlistVisible) layoutPlaylist(); });
+  mainWindow.on('resize', () => { if (playlistVisible) layoutPlaylist(); });
+
   mainWindow.on('closed', () => {
+    stopPlaylistWatch();
+    if (playlistWindow && !playlistWindow.isDestroyed()) {
+      playlistWindow.destroy();
+    }
+    playlistWindow = null;
     mainWindow = null;
     surfaceWindow = null;
   });
@@ -386,6 +413,258 @@ function createSurfaceWindow() {
 
   surfaceWindow.loadURL('about:blank');
 }
+
+// ---------- 文件列表常量 ----------
+
+/** 列表窗口宽度（px） */
+const PLAYLIST_WIDTH = 322;
+/** 全屏时：光标进入屏幕右侧多少像素就弹出 */
+const PLAYLIST_EDGE_PX = 26;
+/** 光标离开列表外扩多少像素后算"离开" */
+const PLAYLIST_KEEP_MARGIN = 16;
+/** 全屏悬浮检测轮询间隔（ms） */
+const PLAYLIST_POLL_MS = 120;
+
+/**
+ * 创建文件列表窗口。
+ *
+ * 为什么是独立窗口：全屏播放时视频是 mpv 的原生子窗口，会盖住主窗口的 HTML，
+ * 主窗口里的抽屉在全屏下根本看不见。一个无边框子窗口是唯一能同时满足
+ * "窗口模式贴视频右缘"和"全屏贴屏幕右缘"的做法。
+ */
+function createPlaylistWindow() {
+  playlistWindow = new BrowserWindow({
+    parent: mainWindow,
+    frame: false,
+    transparent: true,
+    show: false,
+    skipTaskbar: true,
+    // 可聚焦：列表项要能点；Esc 也在这一层处理
+    focusable: true,
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    closable: false,
+    hasShadow: false,
+    backgroundColor: '#00000000',
+    webPreferences: {
+      preload: path.join(__dirname, 'playlist', 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+      backgroundThrottling: false,
+    },
+  });
+
+  playlistWindow.loadFile(path.join(__dirname, 'playlist', 'index.html'));
+
+  playlistWindow.on('closed', () => {
+    playlistWindow = null;
+    playlistVisible = false;
+  });
+
+  console.log('[main] playlist window created');
+}
+
+/**
+ * 算出列表窗口应该摆在哪。
+ *
+ * - 全屏：贴屏幕右缘、整屏高；
+ * - 窗口模式：贴视频区右缘（这样不遮住标记侧栏），高度跟视频区一致；
+ * - 还没加载视频：贴主窗口客户区右缘。
+ */
+function playlistBounds() {
+  const fullscreen = isSurfaceFullscreen && surfaceWindow && !surfaceWindow.isDestroyed();
+  const display = fullscreen
+    ? screen.getDisplayMatching(surfaceWindow.getBounds()).bounds
+    : null;
+  const content = (mainWindow && !mainWindow.isDestroyed())
+    ? mainWindow.getContentBounds()
+    : null;
+
+  return PlaylistModel.computeBounds({
+    width: PLAYLIST_WIDTH,
+    fullscreen,
+    display,
+    videoRect: lastVideoRect,
+    content,
+  });
+}
+
+/** 把列表窗口摆到正确位置（尺寸变了才真的 setBounds） */
+function layoutPlaylist() {
+  if (!playlistWindow || playlistWindow.isDestroyed()) return;
+  const b = playlistBounds();
+  if (!b) return;
+  const key = `${b.x},${b.y},${b.width},${b.height}`;
+  if (key !== playlistRectKey) {
+    playlistRectKey = key;
+    playlistWindow.setBounds(b, false);
+  }
+}
+
+/** 显示列表 */
+function showPlaylist(auto) {
+  if (!playlistWindow || playlistWindow.isDestroyed()) return;
+  if (playlistVisible) {
+    // 已经显示：只确保数据和层叠顺序正确
+    layoutPlaylist();
+    emitPlaylist();
+    return;
+  }
+  playlistVisible = true;
+  playlistRectKey = '';       // 强制重算位置
+  layoutPlaylist();
+  playlistWindow.showInactive();  // 显示但不抢主窗口焦点
+  try { playlistWindow.moveTop(); } catch { /* 个别平台不支持 */ }
+  emitPlaylist();
+  emitPlaylistMenuState();
+  notifyPlaylistState();
+  logInfo('[playlist] shown', auto ? '(auto)' : '');
+}
+
+/** 隐藏列表 */
+function hidePlaylist() {
+  if (!playlistWindow || playlistWindow.isDestroyed()) return;
+  if (!playlistVisible) return;
+  playlistVisible = false;
+  playlistWindow.hide();
+  emitPlaylistMenuState();
+  notifyPlaylistState();
+  logInfo('[playlist] hidden');
+}
+
+/** 切换显示状态（菜单 / 图标按钮 / 快捷键都走这里） */
+function togglePlaylist() {
+  if (playlistVisible) hidePlaylist();
+  else showPlaylist(false);
+  return playlistVisible;
+}
+
+/** 把列表数据推给列表窗口 */
+function emitPlaylist() {
+  if (!playlistWindow || playlistWindow.isDestroyed()) return;
+  try {
+    playlistWindow.webContents.send('playlist-data', {
+      items: playlistItems,
+      index: playlistIndex,
+    });
+  } catch { /* 窗口正在销毁 */ }
+}
+
+/** 菜单里的勾选状态要跟着变，重建一次菜单即可 */
+function emitPlaylistMenuState() {
+  buildMenu();
+}
+
+/** 通知主窗口渲染进程"列表显隐变了"，用来同步控制条图标的激活态 */
+function notifyPlaylistState() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  try {
+    mainWindow.webContents.send('player-event', {
+      type: 'playlist-state',
+      visible: playlistVisible,
+    });
+  } catch { /* 窗口正在销毁 */ }
+}
+
+// ---------- 列表数据 ----------
+
+/** 从路径造一条列表项 */
+function makePlaylistItem(filePath) {
+  return PlaylistModel.makeItem(filePath);
+}
+
+/**
+ * 用一批路径替换列表，并把第一项设为当前项。
+ * @param {string[]} paths
+ * @returns {number} 实际加入的数量
+ */
+function setPlaylistPaths(paths) {
+  playlistItems = PlaylistModel.buildItems(paths);
+  playlistIndex = playlistItems.length ? 0 : -1;
+  emitPlaylist();
+  return playlistItems.length;
+}
+
+/**
+ * 记录"现在正在播这个文件"：在列表里就移动高亮，不在就追加。
+ * 所有打开入口（对话框 / 拖放 / 最近打开 / 列表点击 / 启动参数）最后都会走到这里。
+ * @param {string} filePath
+ */
+function notePlaylistCurrent(filePath) {
+  if (typeof filePath !== 'string' || !filePath) return;
+  const before = playlistItems.length;
+  const next = PlaylistModel.noteCurrent(playlistItems, filePath);
+  playlistItems = next.items;
+  const changed = next.index !== playlistIndex || playlistItems.length !== before;
+  playlistIndex = next.index;
+  if (changed) emitPlaylist();
+}
+
+/** 让主窗口渲染进程打开某个文件（与拖放/菜单同一入口） */
+function requestOpenFile(filePath) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send('player-event', { type: 'open-file', path: filePath });
+}
+
+/**
+ * 打开列表里的第 index 项。
+ * @param {number} index
+ */
+function openPlaylistIndex(index) {
+  const i = Number(index);
+  if (!Number.isInteger(i) || i < 0 || i >= playlistItems.length) return;
+  playlistIndex = i;
+  emitPlaylist();
+  requestOpenFile(playlistItems[i].path);
+  // 立刻把焦点还给主窗口，否则之后按快捷键会落到列表窗口上
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.focus();
+}
+
+// ---------- 全屏：鼠标靠近右缘自动弹出 ----------
+
+/** 开始轮询光标位置（只在全屏时工作） */
+function startPlaylistWatch() {
+  if (playlistWatchTimer) return;
+  playlistWatchTimer = setInterval(() => {
+    if (!isSurfaceFullscreen) {
+      stopPlaylistWatch();
+      return;
+    }
+    if (!playlistWindow || playlistWindow.isDestroyed()) return;
+    if (!surfaceWindow || surfaceWindow.isDestroyed()) return;
+
+    const pt = screen.getCursorScreenPoint();
+    const d = screen.getDisplayMatching(surfaceWindow.getBounds());
+
+    // 正在系统文件对话框里选文件：保持当前状态，别自动收起
+    if (playlistDialogOpen) return;
+
+    if (!playlistVisible) {
+      if (PlaylistModel.hitRightEdge(pt, d.bounds, PLAYLIST_EDGE_PX)) {
+        showPlaylist(true);
+      }
+      return;
+    }
+
+    // 已显示：光标离开列表（含外扩容差）就收起
+    if (!PlaylistModel.insideList(pt, playlistWindow.getBounds(), PLAYLIST_KEEP_MARGIN)) {
+      hidePlaylist();
+    }
+  }, PLAYLIST_POLL_MS);
+  console.log('[playlist] fullscreen watch started');
+}
+
+/** 停止轮询 */
+function stopPlaylistWatch() {
+  if (!playlistWatchTimer) return;
+  clearInterval(playlistWatchTimer);
+  playlistWatchTimer = null;
+  console.log('[playlist] fullscreen watch stopped');
+}
+
 
 // ---------- mpv 生命周期 ----------
 
@@ -746,6 +1025,9 @@ function applyVideoRect(rect) {
   if (mpvReady && !surfaceWindow.isVisible()) {
     surfaceWindow.show();
   }
+
+  // 文件列表贴着视频区右缘走（只在显示时跟）
+  if (playlistVisible) layoutPlaylist();
 }
 
 // ---------- 视频子窗口全屏 ----------
@@ -772,6 +1054,11 @@ function toggleFullscreen() {
       surfaceWindow.setBounds(d.bounds);
     }
   }, 150);
+
+  // 文件列表：进入全屏后启用"鼠标靠近屏幕右缘自动弹出"
+  if (playlistVisible) layoutPlaylist();
+  startPlaylistWatch();
+
   emitPlayerEvent({ type: 'fullscreen', fullscreen: true });
 }
 
@@ -789,6 +1076,10 @@ function exitFullscreen() {
   }
   savedSurfaceBounds = null;
   emitPlayerEvent({ type: 'fullscreen', fullscreen: false });
+
+  // 退出全屏：停止悬浮检测，列表改回贴视频区右缘
+  stopPlaylistWatch();
+  if (playlistVisible) layoutPlaylist();
 }
 
 /**
@@ -1184,6 +1475,77 @@ function registerIpc() {
     settings ? settings.set(key, value) : false
   ));
   ipcMain.handle('recent-list', () => (settings ? settings.get('recentFiles') : []));
+
+  // ---------- IPC：文件列表 ----------
+
+  // 多选打开：选完直接建列表并打开第一个
+  ipcMain.handle('open-videos', async () => {
+    const lastDir = settings ? settings.get('lastDir') : '';
+    playlistDialogOpen = true;
+    let res;
+    try {
+      res = await dialog.showOpenDialog(mainWindow, {
+        title: t('dialog.openVideoTitle'),
+        defaultPath: lastDir && fs.existsSync(lastDir) ? lastDir : undefined,
+        properties: ['openFile', 'multiSelections'],
+        filters: [{ name: t('dialog.mediaFilter'), extensions: MEDIA_EXTENSIONS }],
+      });
+    } finally {
+      playlistDialogOpen = false;
+    }
+    if (res.canceled || res.filePaths.length === 0) return { canceled: true, count: 0 };
+
+    const media = res.filePaths.filter((p) => isMediaPath(p));
+    if (!media.length) return { canceled: true, count: 0 };
+
+    if (settings) settings.set('lastDir', path.dirname(media[0]));
+    setPlaylistPaths(media);
+    requestOpenFile(media[0]);
+
+    // 多选时才自动把列表显示出来——单选只是普通打开，不打扰
+    if (media.length > 1) showPlaylist(false);
+    return { canceled: false, count: media.length, paths: media };
+  });
+
+  // 拖放多文件：渲染进程把路径数组送过来，这里建列表并打开第一个
+  ipcMain.handle('open-videos-from-paths', async (event, paths) => {
+    const list = Array.isArray(paths) ? paths.filter((p) => typeof p === 'string' && p) : [];
+    if (!list.length) return { ok: false, count: 0 };
+    const media = list.filter((p) => isMediaPath(p));
+    if (!media.length) return { ok: false, count: 0 };
+    if (settings) settings.set('lastDir', path.dirname(media[0]));
+    setPlaylistPaths(media);
+    requestOpenFile(media[0]);
+    showPlaylist(false);
+    return { ok: true, count: media.length };
+  });
+
+  // 渲染进程报告"这个文件已经载入成功"——列表据此移动高亮
+  ipcMain.handle('playlist-note-current', (event, filePath) => {
+    notePlaylistCurrent(filePath);
+    return { ok: true };
+  });
+
+  // 切换显示（图标按钮 / 快捷键）
+  ipcMain.handle('toggle-playlist', () => {
+    const visible = togglePlaylist();
+    return { ok: true, visible };
+  });
+
+  // 列表窗口：请求打开某一项
+  ipcMain.on('playlist-open', (event, index) => {
+    openPlaylistIndex(index);
+  });
+
+  // 列表窗口：点了 ✕ 或按了 Esc
+  ipcMain.on('playlist-close', () => {
+    hidePlaylist();
+  });
+
+  // 列表窗口：就绪，把当前数据推过去
+  ipcMain.on('playlist-ready', (event) => {
+    emitPlaylist();
+  });
 
   // 语言：preload 在页面脚本之前同步取值，保证首帧就是正确语言
   ipcMain.on('get-language', (event) => {
@@ -1598,17 +1960,27 @@ function registerIpc() {
 /** 从菜单/快捷键走"打开文件"：选完发 open-file 事件，与工具栏按钮同一入口 */
 async function pickAndOpenDialog() {
   const lastDir = settings ? settings.get('lastDir') : '';
-  const res = await dialog.showOpenDialog(mainWindow, {
-    title: t('dialog.openVideoTitle'),
-    defaultPath: lastDir && fs.existsSync(lastDir) ? lastDir : undefined,
-    properties: ['openFile'],
-    filters: [{ name: t('dialog.mediaFilter'), extensions: MEDIA_EXTENSIONS }],
-  });
-  if (res.canceled || res.filePaths.length === 0) return;
-  if (settings) settings.set('lastDir', path.dirname(res.filePaths[0]));
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('player-event', { type: 'open-file', path: res.filePaths[0] });
+  playlistDialogOpen = true;
+  let res;
+  try {
+    res = await dialog.showOpenDialog(mainWindow, {
+      title: t('dialog.openVideoTitle'),
+      defaultPath: lastDir && fs.existsSync(lastDir) ? lastDir : undefined,
+      properties: ['openFile', 'multiSelections'],
+      filters: [{ name: t('dialog.mediaFilter'), extensions: MEDIA_EXTENSIONS }],
+    });
+  } finally {
+    playlistDialogOpen = false;
   }
+  if (res.canceled || res.filePaths.length === 0) return;
+
+  const media = res.filePaths.filter((p) => isMediaPath(p));
+  if (!media.length) return;
+
+  if (settings) settings.set('lastDir', path.dirname(media[0]));
+  setPlaylistPaths(media);
+  requestOpenFile(media[0]);
+  if (media.length > 1) showPlaylist(false);
 }
 
 /** 构建"最近打开"子菜单（空列表时给一个禁用的占位项） */
@@ -1679,6 +2051,18 @@ function buildMenu() {
         },
         { type: 'separator' },
         { label: t('menu.quit'), accelerator: 'Alt+F4', role: 'quit' },
+      ],
+    },
+    {
+      label: t('menu.view'),
+      submenu: [
+        {
+          label: t('menu.fileList'),
+          type: 'checkbox',
+          checked: playlistVisible,
+          accelerator: 'CmdOrCtrl+L',
+          click: () => togglePlaylist(),
+        },
       ],
     },
     {
@@ -1838,6 +2222,8 @@ if (!gotSingleInstanceLock) {
     createMainWindow();
     createSurfaceWindow();
     registerIpc();
+    // 列表窗口要放在 registerIpc 之后：它的 preload 用同步 IPC 取语言
+    createPlaylistWindow();
     buildMenu();
 
     // 渲染进程崩溃（不是 JS 报错，而是进程没了）：记日志，方便定位是 mpv 嵌入还是驱动问题
@@ -1858,6 +2244,7 @@ if (!gotSingleInstanceLock) {
       if (BrowserWindow.getAllWindows().length === 0) {
         createMainWindow();
         createSurfaceWindow();
+        createPlaylistWindow();
       }
     });
   });
@@ -1872,6 +2259,11 @@ if (!gotSingleInstanceLock) {
   app.on('before-quit', () => {
     quitting = true;
     stopRevTimer();
+    stopPlaylistWatch();
+    if (playlistWindow && !playlistWindow.isDestroyed()) {
+      playlistWindow.destroy();
+    }
+    playlistWindow = null;
     if (settings) settings.save();
     if (mpvClient) {
       mpvClient.close();
