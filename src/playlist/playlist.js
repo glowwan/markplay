@@ -97,12 +97,28 @@
       });
       li.appendChild(rm);
 
-      li.addEventListener('click', function () {
+      /**
+       * 事件是否来自"移除按钮"内部。
+       * ✕ 自己已经 stopPropagation，这里再按 target 兜一层：
+       * 万一某个浏览器/合成事件让冒泡穿过来了，也不会误触发"打开/关闭"。
+       */
+      function fromRemoveBtn(e) {
+        var el = e && e.target;
+        while (el && el !== li) {
+          if (el.classList && el.classList.contains('remove')) return true;
+          el = el.parentNode;
+        }
+        return false;
+      }
+
+      li.addEventListener('click', function (e) {
+        if (fromRemoveBtn(e)) return;
         window.markplay.openItem(i);
       });
 
       // 双击 = 打开并关闭列表，符合"选完就走"的直觉
-      li.addEventListener('dblclick', function () {
+      li.addEventListener('dblclick', function (e) {
+        if (fromRemoveBtn(e)) return;
         window.markplay.openItem(i);
         window.markplay.close();
       });
@@ -110,10 +126,21 @@
       listEl.appendChild(li);
     });
 
-    // 当前项滚动到可见区
+    // 当前项滚动到可见区。
+    // 这里手算 listEl.scrollTop，而不是用 element.scrollIntoView：
+    // 后者会把"最近的可滚动祖先"一路算到文档，可能连带滚动整个文档，
+    // 把 fixed 之外的布局整体顶走（这正是"列表突然消失"的一种典型成因）。
     var cur = listEl.querySelector('.item.current');
-    if (cur && cur.scrollIntoView) {
-      cur.scrollIntoView({ block: 'nearest' });
+    if (cur) {
+      var curTop = cur.offsetTop;
+      var curH = cur.offsetHeight;
+      var viewTop = listEl.scrollTop;
+      var viewH = listEl.clientHeight;
+      if (curTop < viewTop) {
+        listEl.scrollTop = curTop;
+      } else if (curTop + curH > viewTop + viewH) {
+        listEl.scrollTop = curTop + curH - viewH;
+      }
     }
   }
 

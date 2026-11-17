@@ -1056,3 +1056,68 @@ mpv 播到文件末尾会发 `end-file`（reason=eof），而项目用的是 `--
 - ✕ 平时 `opacity: 0`，悬停到该条目才显现 —— 否则列表看起来会很吵。
 - 空列表时仍渲染 ＋（不然没有入口），但不渲染任何 ✕。
 - `playlist-add` 也设置 `playlistDialogOpen`，全屏时选文件期间列表不会被自动收起。
+
+## 二十七、列表"消失"的排查（v1.11.1）
+
+### 现象
+
+窗口模式下点列表条目里的 ✕，整个列表窗口不见了；全屏模式正常。
+
+### 排查：先做最小复现，而不是猜
+
+第一反应是"某处调了 hide"。读代码只有三个 hide 入口（按钮/快捷键、全屏悬浮检测、
+列表自己请求关闭），都不该在这条路径上触发。继续读下去不会更有结论，于是搭了个
+最小 Electron 工程：
+
+- 用**真实的** `src/playlist/index.html` / `playlist.js` / `preload.js`；
+- 在 main 里伪造 `playlist-data` / `playlist-remove` 等 IPC；
+- `win.webContents.executeJavaScript(...)` 模拟点击第 2 条的 ✕；
+- 打印 `isVisible()`、窗口事件、DOM 行数、面板 `opacity`、`document.scrollTop`。
+
+结果：
+
+```
+初始 isVisible = true
+IPC: playlist-remove 1
+  -> 剩余 2 项，当前下标 -1
+点击后 isVisible = true      ← 没有被隐藏
+DOM 行数 = 2                 ← 内容正常
+panel 类名 = panel in
+panel 计算透明度 = 1
+事件序列里出现过 hide 吗: false
+```
+
+**窗口没被隐藏、内容也正常。** 那用户看到的"消失"只能是**被盖住**。
+
+### 结论：透明窗口被 mpv 的原生子窗口压到下面
+
+列表是一个 `transparent: true` 的独立窗口，DOM 重绘之后，
+z-order 会被 mpv 渲染所在的**原生子窗口**（视频画面）盖住。
+
+这解释了为什么只有点 ✕ 会触发：点条目那条路径里有 `mainWindow.focus()`，
+而 Windows 在聚焦主窗口时会连带把它拥有的子窗口一起抬起来；
+点 ✕ 只是重绘，没有任何"抬高"动作。
+
+### 修法
+
+- `emitPlaylist()` 每次推数据后调 `raisePlaylist()`（`moveTop()` 不抢焦点），
+  并在 60ms 后再抬一次——重绘是异步的，第二次能覆盖重绘窗口期；
+- 移除条目这条路径原本完全没有任何抬高动作，额外再抬一次；
+- 兜底自愈：如果窗口真的被 `hide` 了（而不是被盖住），自动重新显示并写告警；
+- 诊断：`hidePlaylist(reason)` 记录原因 + 调用栈，`playlistWindow` 的
+  `hide/show/blur/focus` 全部写日志。
+
+### 顺手加固的三处
+
+1. 全屏悬浮检测加了"真·全屏"校验（`surfaceWindow.isFullScreen()`）：
+   状态过期时立刻停表并复位标志，避免窗口模式下按全屏规则误收列表。
+2. `.panel` 由 `absolute` 改 `fixed`：`absolute` 相对初始包含块，文档一旦被滚动，
+   面板会被整体顶出视野——那也是"消失"的一种。
+3. 当前项滚动改为手算 `listEl.scrollTop`，不用 `scrollIntoView`：
+   后者会一路找"最近的可滚动祖先"，可能连带滚动文档。
+
+### 教训
+
+这次差点凭直觉改 hide 逻辑，而真正的成因根本不在 hide 上。
+**先把"窗口是否真的不可见"测出来**，一步就把排查范围砍掉一半。
+最小复现工程只花了十几分钟，却省掉了后面所有猜测。

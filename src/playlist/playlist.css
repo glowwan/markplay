@@ -26,7 +26,10 @@ html, body {
 }
 
 .panel {
-  position: absolute;
+  /* fixed 而不是 absolute：absolute 相对初始包含块，万一文档被滚动
+     （scrollIntoView / 焦点跳转都可能造成），面板会被整体推出视野，
+     看起来就像"列表窗口消失了"。fixed 永远贴住视口。 */
+  position: fixed;
   inset: 0;
   display: flex;
   flex-direction: column;

@@ -2,6 +2,31 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。日期为发布日。
 
+## [1.11.1] - 2026-11-17
+
+### 修复
+
+- **窗口模式下点列表条目里的 ✕，列表会"消失"**
+  - 排查过程：写了一个最小 Electron 复现（真实 `src/playlist` 页面 + preload，
+    用 `executeJavaScript` 模拟点击 ✕），结果窗口 `isVisible` 一直是 `true`、
+    没有 `hide` 事件、DOM 行数正确、面板 `opacity: 1`。
+    **说明窗口没有被隐藏，而是被盖住了**——列表是透明窗口，DOM 重绘后被
+    mpv 的原生子窗口（视频画面）压到了下层。
+  - 为什么点条目不会：那条路径会 `mainWindow.focus()`，聚焦会连带把 owned 窗口
+    一起抬起来；点 ✕ 没有这一步。
+  - 修法：`emitPlaylist()` 每次推数据后主动 `raisePlaylist()`（`moveTop()` 不抢焦点），
+    并在 60ms 后再抬一次覆盖重绘窗口期；移除条目的路径额外再抬一次。
+  - 兜底：若窗口真的被隐藏（而非被盖住），自动重新显示并写告警日志。
+
+### 内部
+
+- `hidePlaylist(reason)` 现在记录原因与调用栈；`playlistWindow` 的
+  `hide/show/blur/focus` 事件全部写日志，方便日后定位同类问题
+- 全屏悬浮检测增加"真·全屏"校验（`surfaceWindow.isFullScreen()`），
+  状态过期时立刻停表并复位 `isSurfaceFullscreen`，避免在窗口模式下按全屏规则误收
+- 列表面板由 `position: absolute` 改为 `fixed`；当前项滚动改为手算 `listEl.scrollTop`，
+  不再用 `scrollIntoView`（后者可能连带滚动文档，把面板顶出视野）
+- 条目 click/dblclick 增加 target 守卫，确保 ✕ 的点击不会冒泡成"打开/关闭"
 ## [1.11.0] - 2026-11-17
 
 ### 新增

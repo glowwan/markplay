@@ -475,6 +475,12 @@ function createPlaylistWindow() {
     playlistVisible = false;
   });
 
+  // 诊断日志：任何非我们主动触发的隐藏/失焦都能在日志里看到
+  playlistWindow.on('hide', () => logInfo('[playlist] window hide event', 'visible=', playlistVisible));
+  playlistWindow.on('show', () => logInfo('[playlist] window show event'));
+  playlistWindow.on('blur', () => logInfo('[playlist] window blur'));
+  playlistWindow.on('focus', () => logInfo('[playlist] window focus'));
+
   console.log('[main] playlist window created');
 }
 
@@ -535,11 +541,18 @@ function showPlaylist(auto) {
   logInfo('[playlist] shown', auto ? '(auto)' : '');
 }
 
-/** 隐藏列表 */
-function hidePlaylist() {
+/**
+ * 隐藏列表。
+ * @param {string} [reason] 记日志用：谁把它收起来的
+ */
+function hidePlaylist(reason) {
   if (!playlistWindow || playlistWindow.isDestroyed()) return;
   if (!playlistVisible) return;
   playlistVisible = false;
+  // 排查"点 ✕ 后窗口消失"：记录触发方与调用栈前几帧
+  const stack = String(new Error().stack || '')
+    .split('\n').slice(1, 4).map((s) => s.trim()).join(' <- ');
+  logInfo('[playlist] hide', reason || '(unknown)', stack);
   playlistWindow.hide();
   emitPlaylistMenuState();
   notifyPlaylistState();
@@ -548,12 +561,19 @@ function hidePlaylist() {
 
 /** 切换显示状态（菜单 / 图标按钮 / 快捷键都走这里） */
 function togglePlaylist() {
-  if (playlistVisible) hidePlaylist();
+  if (playlistVisible) hidePlaylist('toggle (button/shortcut/menu)');
   else showPlaylist(false);
   return playlistVisible;
 }
 
-/** 把列表数据推给列表窗口 */
+/**
+ * 把列表数据推给列表窗口。
+ *
+ * 每次推送后都主动 moveTop()：列表是透明窗口，DOM 重绘之后会有一定概率
+ * 被 mpv 的原生子窗口（视频画面）压到下面——表现就是"列表突然不见了"，
+ * 但 isVisible 仍然是 true、DOM 也正常（用最小 Electron 复现确认过）。
+ * moveTop() 不会抢焦点，只是把窗口抬回同层的最上面。
+ */
 function emitPlaylist() {
   if (!playlistWindow || playlistWindow.isDestroyed()) return;
   try {
@@ -564,6 +584,22 @@ function emitPlaylist() {
       fullscreen: isSurfaceFullscreen === true,
     });
   } catch { /* 窗口正在销毁 */ }
+
+  if (!playlistVisible) return;
+  raisePlaylist();
+}
+
+/**
+ * 把列表窗口抬到同层最上面（不抢焦点）。
+ * 立即抬一次，再在下一帧抬一次——重绘是异步的，第二次能覆盖重绘窗口期。
+ */
+function raisePlaylist() {
+  if (!playlistWindow || playlistWindow.isDestroyed() || !playlistVisible) return;
+  try { playlistWindow.moveTop(); } catch { /* 个别平台不支持 */ }
+  setTimeout(() => {
+    if (!playlistWindow || playlistWindow.isDestroyed() || !playlistVisible) return;
+    try { playlistWindow.moveTop(); } catch { /* 忽略 */ }
+  }, 60);
 }
 
 /** 菜单里的勾选状态要跟着变，重建一次菜单即可 */
@@ -621,6 +657,7 @@ function requestOpenFile(filePath) {
  * @param {number} index
  */
 function removePlaylistItem(index) {
+  const wasVisible = playlistVisible;
   const before = playlistItems.length;
   const next = PlaylistModel.removeAt(playlistItems, index, playlistIndex);
   playlistItems = next.items;
@@ -628,6 +665,18 @@ function removePlaylistItem(index) {
   if (playlistItems.length !== before) {
     emitPlaylist();
     logInfo('[playlist] removed item', index, 'remaining', playlistItems.length);
+  }
+
+  // 抬高一次：移除条目走的是"重绘但不重新显示"的路径，
+  // 不抬的话透明窗口可能被视频原生子窗口盖住（看着像整个列表消失了）。
+  if (wasVisible) raisePlaylist();
+
+  // 自愈：如果窗口真的被隐藏了（而不是被盖住），重新显示并告警。
+  // 正常情况不会触发；触发了说明有别的路径在偷偷 hide（日志里会写明原因）。
+  if (wasVisible && playlistWindow && !playlistWindow.isDestroyed() && !playlistWindow.isVisible()) {
+    logWarn('[playlist] window was hidden right after remove; re-showing');
+    playlistVisible = false;
+    showPlaylist(false);
   }
 }
 
@@ -697,7 +746,26 @@ function startPlaylistWatch() {
       return;
     }
     if (!playlistWindow || playlistWindow.isDestroyed()) return;
-    if (!surfaceWindow || surfaceWindow.isDestroyed()) return;
+    if (!surfaceWindow || surfaceWindow.isDestroyed()) {
+      stopPlaylistWatch();
+      return;
+    }
+    // 状态过期保护：视频窗口实际上已经不是全屏了（被系统/其它路径退出），
+    // 但仍残留 isSurfaceFullscreen=true 时，绝不能继续按"全屏右缘"判定——
+    // 否则窗口模式下鼠标位置一对不上就会把列表收起来。
+    let reallyFullscreen = true;
+    try {
+      reallyFullscreen = surfaceWindow.isFullScreen();
+    } catch {
+      reallyFullscreen = false;
+    }
+    if (!reallyFullscreen) {
+      logWarn('[playlist] watch: surface no longer fullscreen, stopping');
+      isSurfaceFullscreen = false;
+      stopPlaylistWatch();
+      if (playlistVisible) layoutPlaylist();
+      return;
+    }
 
     const pt = screen.getCursorScreenPoint();
     const d = screen.getDisplayMatching(surfaceWindow.getBounds());
@@ -714,7 +782,7 @@ function startPlaylistWatch() {
 
     // 已显示：光标离开列表（含外扩容差）就收起
     if (!PlaylistModel.insideList(pt, playlistWindow.getBounds(), PLAYLIST_KEEP_MARGIN)) {
-      hidePlaylist();
+      hidePlaylist('fullscreen watch: pointer left list');
     }
   }, PLAYLIST_POLL_MS);
   console.log('[playlist] fullscreen watch started');
@@ -1626,9 +1694,9 @@ function registerIpc() {
     openPlaylistIndex(index);
   });
 
-  // 列表窗口：点了 ✕ 或按了 Esc
+  // 列表窗口：点了标题栏的 ✕ 或按了 Esc
   ipcMain.on('playlist-close', () => {
-    hidePlaylist();
+    hidePlaylist('playlist window asked to close');
   });
 
   // 列表窗口：就绪，把当前数据推过去
