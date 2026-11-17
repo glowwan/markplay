@@ -608,11 +608,67 @@
         status(I18n.t('status.openFailed', { msg: r && r.error ? r.error : I18n.t('common.unknown') }), 'error');
         return;
       }
-      afterVideoOpened(path).then(function () { showLoading(false); });
+      afterVideoOpened(path).then(function () {
+        showLoading(false);
+        maybeResume(path, r && r.resumeAt);
+      });
     }).catch(function (err) {
       showLoading(false);
       status(I18n.t('status.openFailed', { msg: err && err.message ? err.message : String(err) }), 'error');
     });
+  }
+
+  /**
+   * 续播：上次看到一半的视频，打开后自动跳回去。
+   *
+   * 为什么要等一下再 seek：刚 loadfile 完 mpv 还没解析出时长，
+   * 立刻 set time-pos 有时会被忽略。这里等时长事件到了再定位。
+   *
+   * @param {string} path
+   * @param {number} resumeAt 秒；0 表示不续播
+   */
+  function maybeResume(path, resumeAt) {
+    var t = Number(resumeAt);
+    if (!(t > 0)) return;
+
+    var done = false;
+    function go() {
+      if (done) return;
+      done = true;
+      if (unsubscribe) unsubscribe();
+      seekTo(t);
+      state.currentTime = t;
+      updatePlayhead();
+      status(I18n.t('status.resumed', { tc: Exporter.tc(t) }), 'ok');
+      UI.toast(I18n.t('status.resumedToast', { tc: Exporter.tc(t) }), {
+        kind: 'info',
+        actionLabel: I18n.t('ui.startFromBeginning'),
+        onAction: function () {
+          seekTo(0);
+          state.currentTime = 0;
+          updatePlayhead();
+          if (window.markplay.clearResumePoint) {
+            window.markplay.clearResumePoint(path).catch(function () {});
+          }
+          status(I18n.t('status.restartFromBeginning'), 'ok');
+        },
+      });
+    }
+
+    // 时长已经知道就直接跳；否则等第一次 duration 事件
+    var unsubscribe = null;
+    if (state.duration > 0) {
+      go();
+    } else {
+      var started = Date.now();
+      unsubscribe = window.markplay.onEvent(function (ev) {
+        if (ev && ev.type === 'mpv-duration') go();
+      });
+      // 兜底：1.2 秒还没等到时长就直接跳（部分流媒体没有 duration）
+      setTimeout(function () {
+        if (!done && Date.now() - started >= 1200) go();
+      }, 1300);
+    }
   }
 
   // 视频已载入后的 UI 刷新（对话框/拖放/菜单/视频窗口拖放共用）
@@ -1139,7 +1195,9 @@
           break;
         case 'video-loaded':
           // 来自视频子窗口的拖放：主进程已载入，这里只刷新 UI
-          if (ev.path && ev.path !== state.videoPath) afterVideoOpened(ev.path);
+          if (ev.path && ev.path !== state.videoPath) {
+            afterVideoOpened(ev.path).then(function () { maybeResume(ev.path, ev.resumeAt); });
+          }
           break;
         case 'subtitle-added':
           status(I18n.t('status.subtitleLoaded', { name: basename(ev.path || '') }), 'ok');

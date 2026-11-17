@@ -62,6 +62,9 @@ contextBridge.exposeInMainWorld('markplay', {
   /** 关闭列表（用户点了 ✕） */
   close: () => ipcRenderer.send('playlist-close'),
 
+  /** 退出视频全屏（全屏时才显示这个按钮） */
+  exitFullscreen: () => ipcRenderer.send('playlist-exit-fullscreen'),
+
   /** 告诉主进程"我已经就绪，给我数据" */
   ready: () => ipcRenderer.send('playlist-ready'),
 });

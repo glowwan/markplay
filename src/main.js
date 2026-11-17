@@ -36,6 +36,7 @@ const {
 const { backupPathFor, isBackupOf, pickBackupsToDelete } = require('./sidecar-backup');
 const { SUPPORTED, createTranslator, normalize, setActiveLanguage } = require('./i18n');
 const PlaylistModel = require('./playlist-model');
+const Resume = require('./resume');
 const dictZh = require('./locales/zh-CN');
 const dictEn = require('./locales/en-US');
 
@@ -119,6 +120,14 @@ let playlistRectKey = '';
 let playlistWatchTimer = null;
 /** 文件对话框打开期间暂停自动隐藏 */
 let playlistDialogOpen = false;
+
+// ---------- 续播记忆点 ----------
+/** 当前视频已播放到第几秒（来自 time-pos 属性变化） */
+let lastKnownTime = 0;
+/** 上一次写入记忆点的时间（毫秒），用来节流 */
+let lastResumeSaveAt = 0;
+/** 记忆点写入间隔（毫秒） */
+const RESUME_SAVE_INTERVAL_MS = 5000;
 /** 启动参数里带的视频路径（双击关联文件 / 拖到 exe 上） */
 let startupFile = '';
 /** 当前视频路径（菜单"在文件夹中显示"用） */
@@ -549,6 +558,8 @@ function emitPlaylist() {
     playlistWindow.webContents.send('playlist-data', {
       items: playlistItems,
       index: playlistIndex,
+      // 列表窗口据此决定是否显示"退出全屏"按钮
+      fullscreen: isSurfaceFullscreen === true,
     });
   } catch { /* 窗口正在销毁 */ }
 }
@@ -621,6 +632,29 @@ function openPlaylistIndex(index) {
   requestOpenFile(playlistItems[i].path);
   // 立刻把焦点还给主窗口，否则之后按快捷键会落到列表窗口上
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.focus();
+}
+
+// ---------- 续播记忆点 ----------
+
+/**
+ * 把当前视频的播放进度写进设置（节流调用）。
+ * @param {boolean} force 忽略节流（切视频、暂停、退出时用）
+ */
+function saveResumePoint(force) {
+  if (!settings) return;
+  if (!currentVideoPath) return;
+  const t = lastKnownTime;
+  if (!(t > 0)) return;
+  const now = Date.now();
+  if (!force && now - lastResumeSaveAt < RESUME_SAVE_INTERVAL_MS) return;
+  lastResumeSaveAt = now;
+  settings.setResumePoint(currentVideoPath, t, currentDuration);
+}
+
+/** 切换视频前把上一个视频的进度落盘 */
+function flushResumePoint() {
+  if (!currentVideoPath) return;
+  saveResumePoint(true);
 }
 
 // ---------- 全屏：鼠标靠近右缘自动弹出 ----------
@@ -810,7 +844,10 @@ function attachMpvHandlers(client) {
       if (Math.abs(data - lastTime) > 0.05 || now - lastTimeSentAt >= 250) {
         lastTime = data;
         lastTimeSentAt = now;
+        lastKnownTime = data;
         emitPlayerEvent({ type: 'mpv-time', t: data, dur: currentDuration });
+        // 每 5 秒落一次续播记忆点（节流在 saveResumePoint 内部判断）
+        saveResumePoint(false);
       }
     } else if (id === 2) {
       // duration：变化才发
@@ -819,8 +856,9 @@ function attachMpvHandlers(client) {
         emitPlayerEvent({ type: 'mpv-duration', dur: data });
       }
     } else if (id === 3) {
-      // pause：直接转发
+      // pause：直接转发；按暂停说明"我就看到这里"，立刻记一次
       emitPlayerEvent({ type: 'mpv-paused', paused: data === true });
+      if (data === true) saveResumePoint(true);
     } else if (id === 4) {
       // container-fps：素材帧率，EDL/帧号换算要用
       if (typeof data === 'number' && isFinite(data) && data > 0) {
@@ -835,6 +873,8 @@ function attachMpvHandlers(client) {
     // 文件真正加载完成：此时 duration 才可靠，通知渲染进程刷新时长
     if (msg.event === 'file-loaded') {
       emitPlayerEvent({ type: 'mpv-file-loaded' });
+      // 文件真正加载完，位置归零：别让上一支视频的进度污染记忆点
+      lastKnownTime = 0;
       client.send(['get_property', 'duration']).then((r) => {
         if (typeof r.data === 'number' && r.data > 0 && r.data !== currentDuration) {
           currentDuration = r.data;
@@ -1058,6 +1098,7 @@ function toggleFullscreen() {
   // 文件列表：进入全屏后启用"鼠标靠近屏幕右缘自动弹出"
   if (playlistVisible) layoutPlaylist();
   startPlaylistWatch();
+  emitPlaylist();   // 让列表窗口把"退出全屏"按钮显示出来
 
   emitPlayerEvent({ type: 'fullscreen', fullscreen: true });
 }
@@ -1080,6 +1121,7 @@ function exitFullscreen() {
   // 退出全屏：停止悬浮检测，列表改回贴视频区右缘
   stopPlaylistWatch();
   if (playlistVisible) layoutPlaylist();
+  emitPlaylist();   // 让列表窗口把"退出全屏"按钮收起来
 }
 
 /**
@@ -1285,20 +1327,28 @@ function registerIpc() {
       if (surfaceWindow && !surfaceWindow.isDestroyed() && !surfaceWindow.isVisible()) {
         surfaceWindow.show();
       }
+      // 换片之前先把上一个视频的进度落盘
+      flushResumePoint();
+
       // 标题栏显示当前文件名
       currentVideoPath = filePath;
+      lastKnownTime = 0;
+      lastResumeSaveAt = 0;
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.setTitle(`${path.basename(filePath)} — MarkPlay`);
       }
       // 最近打开 + 重建菜单
       if (settings) settings.addRecent(filePath);
       buildMenu();
+
+      // 上次看到哪儿？返回给渲染进程去 seek
+      const resumeAt = settings ? settings.getResumeAt(filePath) : 0;
       // 只有"主进程自己发起"的加载（视频子窗口拖放）才通知渲染进程；
       // 渲染进程调 load-video 时会自己刷新，重复通知会导致标记/区间被加载两次。
       if (notifyRenderer === true) {
-        emitPlayerEvent({ type: 'video-loaded', path: filePath });
+        emitPlayerEvent({ type: 'video-loaded', path: filePath, resumeAt });
       }
-      return { ok: true };
+      return { ok: true, resumeAt };
     } catch (err) {
       logError('[video] open failed', filePath, err);
       emitPlayerEvent({ type: 'open-failed', message: err.message });
@@ -1545,6 +1595,22 @@ function registerIpc() {
   // 列表窗口：就绪，把当前数据推过去
   ipcMain.on('playlist-ready', (event) => {
     emitPlaylist();
+  });
+
+  // 列表窗口：点了"退出全屏"
+  ipcMain.on('playlist-exit-fullscreen', () => {
+    if (isSurfaceFullscreen) exitFullscreen();
+    // 退出后按视频区重新摆位（exitFullscreen 内部也会做，这里兜一次）
+    if (playlistVisible) layoutPlaylist();
+  });
+
+  // 用户选择"从头开始"：清掉这个视频的记忆点
+  ipcMain.handle('clear-resume-point', (event, filePath) => {
+    if (settings && typeof filePath === 'string' && filePath) {
+      settings.clearResumePoint(filePath);
+      lastKnownTime = 0;
+    }
+    return { ok: true };
   });
 
   // 语言：preload 在页面脚本之前同步取值，保证首帧就是正确语言
@@ -2258,6 +2324,8 @@ if (!gotSingleInstanceLock) {
   // 退出前保存设置、杀掉所有子进程（mpv / ffmpeg）
   app.on('before-quit', () => {
     quitting = true;
+    // 退出前把播放进度写入设置，下次续播
+    try { saveResumePoint(true); } catch { /* 忽略 */ }
     stopRevTimer();
     stopPlaylistWatch();
     if (playlistWindow && !playlistWindow.isDestroyed()) {

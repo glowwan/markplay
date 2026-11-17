@@ -883,3 +883,69 @@ preload 在页面脚本之前执行，所以 `index.html` 里 `data-i18n` 的兜
 写完之后做静态审计（`PlaylistModel.*` 的用法、IPC 通道双向核对、preload 暴露 vs 调用），
 发现 `isMediaPath` 在 main.js 里被调用了三次但**没有导入**——多选打开时会直接
 `ReferenceError`。这类错误 `node --check` 抓不到，只能靠交叉核对标识符。
+
+## 二十五、续播记忆点（v1.10.0）
+
+### 存哪儿：settings.json 而不是 sidecar
+
+最直觉的做法是把播放进度写进视频旁边的 `.markplay.json`（sidecar）。
+但那条路有三个问题：
+
+1. sidecar 是**用户数据**（标记 + 区间），写进"看到第几秒"会污染它；
+2. sidecar 每次改动都触发落盘，播放时每 5 秒写一次太吵；
+3. 用户可能只想分享标记文件，不该带上播放进度。
+
+所以放 `settings.json`，独立字段 `resumePoints`，按**小写绝对路径**为键。
+代价是文件改名/移动后记忆点失联——但播放进度本来就是易失信息，可以接受。
+
+### 三条写入时机
+
+| 时机 | 为什么 |
+|---|---|
+| 每 5 秒（time-pos 节流） | 崩溃/断电也不会丢太多 |
+| 按暂停 | "我就看到这里"是最真实的意图，立刻记 |
+| 切视频 / 退出应用前 | 换片和退出是最常见的收尾动作 |
+
+### 什么时候**不**续播
+
+两条规则，缺一不可：
+
+- 位置 < 8 秒：刚打开就关掉，没必要跳；
+- 位置 ≥ 总长 − 5 秒：已经看完了，下次应该从头看。
+
+第二条尤其重要。没有它，凡是看到片尾关掉的视频，下次打开会停在最后一秒，
+用户会以为播放器坏了。写入时也会把这种"已看完"的记录删掉。
+
+### 一个真实的时序坑
+
+`loadfile` 之后立刻 `set time-pos` 有时会被 mpv 忽略——它还没解析出时长。
+所以渲染进程不是拿到 `resumeAt` 就跳，而是：
+
+1. 如果 `state.duration` 已知，直接跳；
+2. 否则订阅 `mpv-duration` 事件，等到时长就跳；
+3. 再兜一个 1.3 秒超时（有些流没有 duration）。
+
+### 退出全屏按钮
+
+放在文件列表窗口的标题栏，只在全屏时显示。技术上有两个小坑：
+
+1. **`display:flex` 会盖掉 `hidden`**。`.head-btn` 是 flex 布局，`hidden` 属性
+   被 CSS 的 display 覆盖，按钮会一直显示。必须显式写 `.head-btn[hidden] { display: none; }`。
+2. **全屏状态要主动推**。列表窗口只在收到 `playlist-data` 时更新，所以
+   `toggleFullscreen` / `exitFullscreen` 里各加了一次 `emitPlaylist()`，
+   把 payload 里的 `fullscreen` 标志同步过去。
+
+### 可测性
+
+记忆点逻辑全在 `src/resume.js`，纯函数、无 Electron 依赖：
+
+- `putEntry` / `getEntry` / `resumeAt` / `clearEntry`
+- `normalizeMap`（读取时清洗 + 按时间淘汰）
+- `normalizeEntry` / `pathKey`
+
+`tests/resume.test.js` 21 个用例覆盖：大小写、边界值（正好 8 秒、正好结尾）、
+上限淘汰顺序、坏数据（`t: 'bad'`、`null`、空键）、以及三个完整流程
+（看到一半 / 看完 / 选择从头开始）。
+
+端到端还额外用**真实的 `SettingsStore`** 走了一遍落盘 → 重新加载 → 读回，
+确认不是只在内存里对。

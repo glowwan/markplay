@@ -238,7 +238,8 @@ module.exports = {
     "noMarkers": "No markers yet — press A / B / C / D / F / G while playing",
     "noRanges": "No ranges yet — press [ at the in point, ] at the out point",
     "countBadge": " ({n})",
-    "playlistDesc": "File list (Ctrl+L): videos opened in bulk live here"
+    "playlistDesc": "File list (Ctrl+L): videos opened in bulk live here",
+    "startFromBeginning": "Start over"
   },
   "status": {
     "readyVersion": "Ready · MarkPlay {version}",
@@ -319,7 +320,10 @@ module.exports = {
     "dragNotRecognized": "Could not read a file path from the drop — drag from File Explorer",
     "loadingSubtitle": "Loading subtitle: {name} …",
     "fullscreen": "Video fullscreen / exit",
-    "playlistOpened": "Added {n} files to the list; playing the first one"
+    "playlistOpened": "Added {n} files to the list; playing the first one",
+    "resumed": "Resumed from last position: {tc}",
+    "resumedToast": "You stopped at {tc} — jumped back there",
+    "restartFromBeginning": "Restarted from the beginning"
   },
   "clipLabels": {
     "clip": "Clip",
@@ -336,6 +340,7 @@ module.exports = {
     "count": " ({n})",
     "close": "Close file list",
     "hint": "Click to switch · double-click to open and close · Esc to hide",
-    "empty": "No files yet\nOpen or drop videos and they will show up here"
+    "empty": "No files yet\nOpen or drop videos and they will show up here",
+    "exitFullscreen": "Exit fullscreen (Esc)"
   }
 };

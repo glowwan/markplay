@@ -8,6 +8,7 @@
  */
 const fs = require('fs');
 const path = require('path');
+const Resume = require('./resume');
 
 /** 最近文件保留数量 */
 const MAX_RECENT = 12;
@@ -20,6 +21,8 @@ const DEFAULTS = Object.freeze({
   window: null, // { x, y, width, height, maximized }
   // 界面语言；空串表示"跟系统"，由主进程在启动时归一
   language: '',
+  // 续播记忆点：{ [小写绝对路径]: { t, dur, at } }
+  resumePoints: {},
 });
 
 function clone(v) {
@@ -68,6 +71,7 @@ class SettingsStore {
           lastDir: typeof merged.lastDir === 'string' ? merged.lastDir : '',
           window: normalizeWindow(merged.window),
           language: typeof merged.language === 'string' ? merged.language : '',
+          resumePoints: Resume.normalizeMap(merged.resumePoints),
         };
       }
     } catch (err) {
@@ -128,6 +132,35 @@ class SettingsStore {
     this.data.lastDir = path.dirname(filePath);
     this.save();
     return this.data.recentFiles.slice();
+  }
+
+  /**
+   * 记下某个视频的播放进度。
+   * @param {string} filePath
+   * @param {number} t 当前秒数
+   * @param {number} dur 总长（未知传 0）
+   * @returns {boolean} 是否真的写了
+   */
+  setResumePoint(filePath, t, dur) {
+    const wrote = Resume.putEntry(this.data.resumePoints, filePath, t, dur, Date.now());
+    if (wrote) this.save();
+    return wrote;
+  }
+
+  /**
+   * 取某个视频的记忆点。
+   * @param {string} filePath
+   * @returns {number} 建议续播的秒数；0 表示从头
+   */
+  getResumeAt(filePath) {
+    return Resume.resumeAt(Resume.getEntry(this.data.resumePoints, filePath));
+  }
+
+  /** 丢掉某个视频的记忆点（用户选择"从头开始"） */
+  clearResumePoint(filePath) {
+    const cleared = Resume.clearEntry(this.data.resumePoints, filePath);
+    if (cleared) this.save();
+    return cleared;
   }
 
   /** 从最近列表里移除（文件被删除时用） */

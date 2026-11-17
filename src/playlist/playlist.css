@@ -72,6 +72,29 @@ html, body {
   font-family: Consolas, "Cascadia Mono", monospace;
 }
 
+/* 头部小按钮（退出全屏）：只在全屏时出现，所以样式跟 ✕ 对齐但悬停色不同 */
+.head-btn {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.head-btn:hover { background: rgba(64, 196, 255, .16); color: var(--accent); }
+
+/* .head-btn 是 display:flex，会盖掉 hidden 的默认样式，必须显式关掉 */
+.head-btn[hidden] { display: none; }
+
 .close {
   flex: none;
   width: 24px;

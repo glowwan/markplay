@@ -2,6 +2,25 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。日期为发布日。
 
+## [1.10.0] - 2026-11-17
+
+### 新增
+
+- **续播记忆点**：每个视频记住上次看到的位置，再次打开自动跳回。
+  - 每 5 秒落一次盘、按暂停时立刻记一次、切视频和退出应用前也会落盘；
+  - 看到结尾（距结束不足 5 秒）不记，下次从头播；
+  - 打开时弹出提示，带「从头开始」按钮，点一下就回到开头并清掉记忆点；
+  - 记在 `settings.json` 里，以绝对路径为键、最多 300 条、按时间淘汰。
+- **全屏时的「退出全屏」按钮**：文件列表窗口的标题栏多了一个 ⤢ 按钮，
+  只在全屏时出现，点一下退出全屏（等于 `Esc` / `F11`）。
+
+### 内部
+
+- 新增 `src/resume.js`：记忆点的校验、归一化、淘汰、续播判定，全是纯函数
+- 新增 `tests/resume.test.js`（21 个用例）：覆盖边界值、坏数据、上限淘汰、完整流程
+- `settings.js` 增加 `resumePoints` 存储与 `setResumePoint` / `getResumeAt` / `clearResumePoint`
+- `doLoadVideo` 返回 `resumeAt`；渲染进程等时长事件到达后再 seek（刚 loadfile 时 set time-pos 会被忽略）
+- 列表窗口数据 payload 增加 `fullscreen` 标志；`.head-btn[hidden]` 显式处理（`display:flex` 会盖掉 hidden）
 ## [1.9.0] - 2026-11-17
 
 ### 新增

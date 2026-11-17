@@ -238,7 +238,8 @@ module.exports = {
     "noMarkers": "暂无标记 — 播放时按 A / B / C / D / F / G 打点",
     "noRanges": "还没有区间 — 播到起点按 [ 设入点，到终点按 ] 建区间",
     "countBadge": "（{n}）",
-    "playlistDesc": "文件列表（Ctrl+L）：批量打开的视频都在这里"
+    "playlistDesc": "文件列表（Ctrl+L）：批量打开的视频都在这里",
+    "startFromBeginning": "从头开始"
   },
   "status": {
     "readyVersion": "就绪 · MarkPlay {version}",
@@ -319,7 +320,10 @@ module.exports = {
     "dragNotRecognized": "拖放未识别到文件路径，请从文件资源管理器拖入",
     "loadingSubtitle": "正在加载字幕：{name} …",
     "fullscreen": "视频全屏 / 退出",
-    "playlistOpened": "已加入文件列表：{n} 个文件，正在播放第 1 个"
+    "playlistOpened": "已加入文件列表：{n} 个文件，正在播放第 1 个",
+    "resumed": "已从上次位置继续：{tc}",
+    "resumedToast": "上次看到 {tc}，已跳回该处",
+    "restartFromBeginning": "已从头开始播放"
   },
   "clipLabels": {
     "clip": "剪辑",
@@ -336,6 +340,7 @@ module.exports = {
     "count": "（{n}）",
     "close": "关闭文件列表",
     "hint": "点击切换视频 · 双击打开并关闭 · Esc 收起",
-    "empty": "还没有文件\n打开或拖入视频后会出现在这里"
+    "empty": "还没有文件\n打开或拖入视频后会出现在这里",
+    "exitFullscreen": "退出全屏 (Esc)"
   }
 };

@@ -11,6 +11,7 @@
   var listEl = document.getElementById('list');
   var countEl = document.getElementById('count');
   var closeBtn = document.getElementById('close');
+  var exitFullBtn = document.getElementById('exit-fullscreen');
   var footEl = document.getElementById('foot');
 
   /** 当前数据：{ items: [{path,name,dir}], index } */
@@ -23,6 +24,16 @@
   }
 
   // ---------- 渲染 ----------
+
+  /**
+   * 全屏状态变化时：只有全屏才显示"退出全屏"按钮。
+   * @param {boolean} fullscreen
+   */
+  function applyFullscreen(fullscreen) {
+    if (!exitFullBtn) return;
+    exitFullBtn.hidden = !fullscreen;
+    document.body.classList.toggle('fullscreen', !!fullscreen);
+  }
 
   function render() {
     listEl.innerHTML = '';
@@ -104,6 +115,12 @@
     });
   }
 
+  if (exitFullBtn) {
+    exitFullBtn.addEventListener('click', function () {
+      window.markplay.exitFullscreen();
+    });
+  }
+
   // Esc 关闭串门：列表窗口拿到焦点时也能用 Esc 收起
   window.addEventListener('keydown', function (e) {
     if (e.code === 'Escape' || e.key === 'Escape') {
@@ -117,6 +134,7 @@
       items: Array.isArray(next.items) ? next.items : [],
       index: typeof next.index === 'number' ? next.index : -1,
     };
+    applyFullscreen(next.fullscreen);
     render();
   });
 
@@ -125,7 +143,9 @@
     render();
   });
 
-  // 首帧先渲染空状态，避免白屏
+  // 首帧：先按"非全屏"初始化按钮状态（HTML 里已有 hidden，这里再兜一次）
+  applyFullscreen(false);
+  // 再渲染空状态，避免白屏
   render();
 
   // 通知主进程可以推数据了

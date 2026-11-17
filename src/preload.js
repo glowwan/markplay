@@ -110,6 +110,13 @@ contextBridge.exposeInMainWorld('markplay', {
   notePlaylistCurrent: (filePath) => ipcRenderer.invoke('playlist-note-current', filePath),
 
   /**
+   * 清掉某个视频的续播记忆点（用户点"从头开始"时调用）。
+   * @param {string} filePath
+   * @returns {Promise<{ok: boolean}>}
+   */
+  clearResumePoint: (filePath) => ipcRenderer.invoke('clear-resume-point', filePath),
+
+  /**
    * 切换文件列表显示。
    * @returns {Promise<{ok: boolean, visible: boolean}>}
    */
