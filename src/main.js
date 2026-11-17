@@ -39,6 +39,7 @@ const PlaylistModel = require('./playlist-model');
 const Resume = require('./resume');
 const RevStep = require('./rev-step');
 const Remux = require('./remux');
+const ClickGesture = require('./click-gesture');
 const dictZh = require('./locales/zh-CN');
 const dictEn = require('./locales/en-US');
 
@@ -297,6 +298,20 @@ let revSeq = 0;
 let revState = null;
 /** 视频画面点击去重：mpv input.conf 与 surface-preload 双路径，300ms 内只算一次 */
 let lastSurfaceClickAt = 0;
+/**
+ * mpv 的 input.conf 路径是否已经开始上报点击。
+ *
+ * 视频画面上的点击有两条来源：mpv 的 input.conf script-message，以及
+ * Electron 子窗口 preload 的 mousedown。实测两条都可能触发，
+ * 但只有 mpv 那条支持双击。所以这里做"自适应"：
+ * 一旦收到过 mpv 的点击，就让 preload 那条彻底静默，避免一次点击执行两次动作。
+ * 反过来如果某台机器上 mpv 那条不通，preload 那条继续兜底（只是没有双击）。
+ */
+let mpvClickPathSeen = false;
+/** 左键单击/双击的判定状态 */
+let clickGesture = ClickGesture.createState();
+/** 挂起中的单击定时器（双击到来时要取消） */
+let clickTimer = null;
 /** 视频子窗口是否全屏 */
 let isSurfaceFullscreen = false;
 /** 进入全屏前视频子窗口的位置（退出时恢复） */
@@ -310,6 +325,10 @@ let lastVideoRect = null;
  */
 const MPV_INPUT_CONF_TEXT = [
     '# MarkPlay generated: mouse bindings on the video surface',
+  // 注意：这里**不**声明 MBTN_LEFT_DBL。双击判定由 src/click-gesture.js 自己做，
+  // 因为 mpv 的双击状态机只在真实鼠标输入下工作，用 IPC 无法验证（实测
+  // keypress MBTN_LEFT 每次都立刻上报 left，双击绑定不触发）。
+  // 不声明它还有个好处：单击上报不会被 mpv 延迟。
   'MBTN_LEFT script-message markplay-click left',
   'MBTN_RIGHT script-message markplay-click right',
   'MBTN_MID script-message markplay-click mid',
@@ -1279,6 +1298,10 @@ function attachMpvHandlers(client) {
     // mpv input.conf 的 script-message：视频画面上的鼠标点击
     if (msg.event === 'client-message' && Array.isArray(msg.args) &&
         msg.args[0] === 'markplay-click') {
+      if (!mpvClickPathSeen) {
+        mpvClickPathSeen = true;
+        logInfo('[main] 画面点击走 mpv input.conf 路径（preload 路径将静默）');
+      }
       handleSurfaceClick(msg.args[1]);
     }
   });
@@ -1297,10 +1320,102 @@ function attachMpvHandlers(client) {
 
 // ---------- 2x 播放 / 2x 倒放 ----------
 
+/** 暂停 / 继续（供双击复用） */
+async function togglePause() {
+  if (!mpvClient) return;
+  try {
+    const r = await mpvClient.send(['get_property', 'pause']);
+    await mpvClient.send(['set_property', 'pause', !(r.data === true)]);
+  } catch (err) {
+    logWarn('[main] 切换暂停失败:', err.message);
+  }
+}
+
+/** 悄悄退出 2x 倒放（不改播放状态），用于双击前清理冲突状态 */
+function stopReverseSilently() {
+  if (speedMode !== 'rev2x') return;
+  stopRevTimer();
+  speedMode = 'normal';
+  resumePaused = false;
+  if (mpvClient) mpvClient.send(['set_property', 'speed', 1]).catch(() => {});
+  emitPlayerEvent({ type: 'speed-mode', mode: 'normal' });
+}
+
+/** 把键盘焦点抢回主窗口（点过 mpv 原生画面后焦点会跑到子窗口上） */
+function focusMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  try {
+    mainWindow.focus();
+    mainWindow.webContents.focus();
+  } catch { /* 忽略 */ }
+}
+
+/** 左键单击的动作：2x 正放开关 */
+function onLeftSingleClick() {
+  setSpeedMode(speedMode === 'fwd2x' ? 'normal' : 'fwd2x');
+}
+
+/** 左键双击的动作：播放 / 暂停切换 */
+function onLeftDoubleClick() {
+  // 倒放模拟会一直强制 pause，先退出它，否则"继续播放"立刻又被按回去
+  stopReverseSilently();
+  togglePause();
+  logInfo('[main] surface double-click -> toggle pause');
+}
+
 /**
- * 视频画面点击（双路径去重后）：左键/中键 ↔ 2x 正放，右键 ↔ 2x 倒放。
+ * 视频画面点击：
+ *  - 左键单击：2x 正放开关
+ *  - 左键双击：播放 / 暂停切换
+ *  - 中键：2x 正放开关（与左键单击一致，老习惯）
+ *  - 右键：2x 倒放开关
+ *
+ * 单击会被推迟一个双击窗口（默认 250ms）再执行——否则双击会被拆成两次单击。
+ * 这个窗口是"双击"这件事本身固有的代价，任何实现都一样。
+ *
  * @param {string} which - 'left' | 'right' | 'mid'
  */
+function handleSurfaceClick(which) {
+  const now = Date.now();
+
+  // 双路径去重：同一次物理点击可能被 mpv 与 preload 各报一次。
+  // 只压非常接近的重复上报，不能把"双击的第二下"也压掉。
+  if (now - lastSurfaceClickAt < 60) return;
+  lastSurfaceClickAt = now;
+  focusMainWindow();
+
+  if (which === 'right') {
+    setSpeedMode(speedMode === 'rev2x' ? 'normal' : 'rev2x');
+    return;
+  }
+  if (which === 'mid') {
+    onLeftSingleClick();
+    return;
+  }
+
+  // 左键：交给手势判定
+  const r = ClickGesture.resolve(clickGesture, now);
+  clickGesture = r.state;
+
+  if (r.action === 'double') {
+    if (clickTimer) {
+      clearTimeout(clickTimer);
+      clickTimer = null;
+    }
+    onLeftDoubleClick();
+    return;
+  }
+
+  // 挂起这次单击，等双击窗口过去再执行
+  const token = r.token;
+  if (clickTimer) clearTimeout(clickTimer);
+  clickTimer = setTimeout(() => {
+    clickTimer = null;
+    if (!ClickGesture.shouldFire(clickGesture, token)) return;
+    clickGesture = ClickGesture.consume(clickGesture);
+    onLeftSingleClick();
+  }, clickGesture.dblMs + 10);
+}
 function handleSurfaceClick(which) {
   const now = Date.now();
   if (now - lastSurfaceClickAt < 300) return; // 双路径去重
@@ -1840,8 +1955,11 @@ function registerIpc() {
     });
   });
 
-  // 视频子窗口的鼠标点击（surface-preload 路径；与 mpv input.conf 双路径去重）
+  // 视频子窗口的鼠标点击（surface-preload 路径）。
+  // mpv 的 input.conf 路径一旦确认可用，这条就静默——否则一次点击会执行两次动作，
+  // 而且这里拿不到双击，会把双击拆成两次单击。
   ipcMain.on('surface-mousedown', (event, data) => {
+    if (mpvClickPathSeen) return;
     const b = data && data.button;
     handleSurfaceClick(b === 2 ? 'right' : b === 1 ? 'mid' : 'left');
   });
@@ -2843,6 +2961,10 @@ if (!gotSingleInstanceLock) {
   // 退出前保存设置、杀掉所有子进程（mpv / ffmpeg）
   app.on('before-quit', () => {
     quitting = true;
+    if (clickTimer) {
+      clearTimeout(clickTimer);
+      clickTimer = null;
+    }
     // 退出前把播放进度写入设置，下次续播
     try { saveResumePoint(true); } catch { /* 忽略 */ }
     stopRevTimer();
