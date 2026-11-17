@@ -128,6 +128,8 @@ let lastKnownTime = 0;
 let lastResumeSaveAt = 0;
 /** 记忆点写入间隔（毫秒） */
 const RESUME_SAVE_INTERVAL_MS = 5000;
+/** 当前视频是否已经播到结尾（播完后不再写记忆点） */
+let videoFinished = false;
 /** 启动参数里带的视频路径（双击关联文件 / 拖到 exe 上） */
 let startupFile = '';
 /** 当前视频路径（菜单"在文件夹中显示"用） */
@@ -643,6 +645,8 @@ function openPlaylistIndex(index) {
 function saveResumePoint(force) {
   if (!settings) return;
   if (!currentVideoPath) return;
+  // 已经播到结尾：不再写（写了也会被 putEntry 删掉，这里省一次判断）
+  if (videoFinished) return;
   const t = lastKnownTime;
   if (!(t > 0)) return;
   const now = Date.now();
@@ -892,6 +896,13 @@ function attachMpvHandlers(client) {
     if (msg.event === 'end-file') {
       lastTime = 0;
       if (msg.reason === 'eof') {
+        // 看完了：清掉记忆点，下次必须从 0 开始
+        videoFinished = true;
+        lastKnownTime = 0;
+        if (settings && currentVideoPath) {
+          settings.clearResumePoint(currentVideoPath);
+          logInfo('[resume] cleared (reached end)', currentVideoPath);
+        }
         emitPlayerEvent({ type: 'mpv-ended' });
       } else if (msg.reason === 'error') {
         emitPlayerEvent({
@@ -1303,6 +1314,11 @@ function registerIpc() {
       return { ok: false, error: err };
     }
     try {
+      // 【必须先 flush】这里 currentDuration 还是上一个视频的真实时长。
+      // 下面 loadfile 之后会把 currentDuration 清 0，那时再存就会丢掉
+      // "时长"信息，导致"已到结尾"的判断失效、把片尾位置存成续播点。
+      flushResumePoint();
+
       await ensureMpv();
       await mpvClient.send(['loadfile', filePath, 'replace']);
       logInfo('[video] open', filePath);
@@ -1327,13 +1343,11 @@ function registerIpc() {
       if (surfaceWindow && !surfaceWindow.isDestroyed() && !surfaceWindow.isVisible()) {
         surfaceWindow.show();
       }
-      // 换片之前先把上一个视频的进度落盘
-      flushResumePoint();
-
       // 标题栏显示当前文件名
       currentVideoPath = filePath;
       lastKnownTime = 0;
       lastResumeSaveAt = 0;
+      videoFinished = false;
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.setTitle(`${path.basename(filePath)} — MarkPlay`);
       }

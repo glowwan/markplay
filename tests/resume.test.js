@@ -161,3 +161,50 @@ test('完整流程：选择从头开始 -> 记录被清掉', () => {
   R.clearEntry(map, 'C:\\V\\a.mp4');
   assert.equal(R.resumeAt(R.getEntry(map, 'C:\\V\\a.mp4')), 0);
 });
+
+// ---------------------------------------------------------------- 回归：这次发现的 bug
+
+test('回归：时长未知时用已有记录的时长判断"已到结尾"', () => {
+  // 场景：换片/重开视频时 currentDuration 被提前清 0，
+  // 于是 flush 时传进来的是 dur=0。若不兜底，片尾位置会被存成续播点。
+  const map = {};
+  R.putEntry(map, 'C:\\V\\a.mp4', 300, 600, 1000);   // 先有一条正常的
+  const wrote = R.putEntry(map, 'C:\\V\\a.mp4', 599, 0, 2000); // 到结尾，但时长没传
+  assert.equal(wrote, false, '应判定为已看完，不写入');
+  assert.equal(map['c:\\v\\a.mp4'], undefined, '旧记录也应被清掉');
+});
+
+test('回归：时长未知时（无历史记录）仍允许写入', () => {
+  // 流媒体等情况确实拿不到 duration，不能因此完全不记
+  const map = {};
+  assert.equal(R.putEntry(map, 'C:\\V\\s.mp4', 120, 0, 1000), true);
+  assert.equal(map['c:\\v\\s.mp4'].t, 120);
+});
+
+test('回归：写入容差 3 秒、续播容差 15 秒（续播更严格）', () => {
+  const map = {};
+  // 597/600：距离结尾 3 秒 -> 写入时就当作看完了
+  R.putEntry(map, 'C:\\V\\a.mp4', 597, 600, 1000);
+  assert.equal(map['c:\\v\\a.mp4'], undefined);
+
+  // 590/600：能写进去（距离 10 秒），但续播时要拒绝（< 15 秒容差）
+  const map2 = {};
+  assert.equal(R.putEntry(map2, 'C:\\V\\b.mp4', 590, 600, 1000), true);
+  assert.equal(R.resumeAt(R.getEntry(map2, 'C:\\V\\b.mp4')), 0, '距结尾 10 秒不该续播');
+
+  // 580/600：距离 20 秒，正常续播
+  const map3 = {};
+  R.putEntry(map3, 'C:\\V\\c.mp4', 580, 600, 1000);
+  assert.equal(R.resumeAt(R.getEntry(map3, 'C:\\V\\c.mp4')), 580);
+});
+
+test('回归：恰好落在两个容差边界上', () => {
+  // 写入边界：pos = dur - 3 视为看完
+  const map = {};
+  assert.equal(R.putEntry(map, 'C:\\V\\a.mp4', 597, 600, 1), false);
+  assert.equal(R.putEntry(map, 'C:\\V\\a.mp4', 596.9, 600, 1), true);
+
+  // 续播边界：pos = dur - 15 视为到结尾
+  assert.equal(R.resumeAt({ t: 585, dur: 600 }), 0);
+  assert.equal(R.resumeAt({ t: 584.9, dur: 600 }), 584.9);
+});

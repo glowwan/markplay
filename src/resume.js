@@ -12,8 +12,12 @@
 
 /** 低于这个秒数不记（刚打开就关掉，没必要） */
 const MIN_SECONDS = 8;
-/** 距离结尾不足这个秒数就当成"看完了" */
-const END_MARGIN = 5;
+/** 写入时：距离结尾不足这个秒数就不记（视为已看完） */
+const WRITE_END_MARGIN = 3;
+/** 续播时：距离结尾不足这个秒数就不续播（比写入更严格，容忍几秒误差） */
+const RESUME_END_MARGIN = 15;
+/** 兼容旧名字（= 写入容差） */
+const END_MARGIN = WRITE_END_MARGIN;
 /** 最多保留多少条记录 */
 const MAX_ENTRIES = 300;
 
@@ -79,15 +83,24 @@ function putEntry(map, filePath, t, dur, now) {
   if (!Number.isFinite(pos) || pos < 0) return false;
 
   const total = Number(dur);
+  const key = pathKey(filePath);
+
+  // 时长未知时的兜底：如果之前记过这支视频的时长，就拿它来做"是否到结尾"的判断。
+  // 否则调用方一旦漏传 dur（比如换片时先清了时长），片尾位置就会被存成续播点，
+  // 下次打开直接停在最后一秒。这条防御让模块不再依赖调用顺序。
+  const prev = map[key];
+  const prevDur = prev && Number.isFinite(prev.dur) && prev.dur > 0 ? prev.dur : 0;
+  const effectiveDur = (Number.isFinite(total) && total > 0) ? total : prevDur;
+
   // 看到结尾（或更后）不记：下次打开应该从头看
-  if (Number.isFinite(total) && total > 0 && pos >= total - END_MARGIN) {
-    delete map[pathKey(filePath)];
+  if (effectiveDur > 0 && pos >= effectiveDur - WRITE_END_MARGIN) {
+    delete map[key];
     return false;
   }
 
-  map[pathKey(filePath)] = {
+  map[key] = {
     t: Math.round(pos * 100) / 100,
-    dur: Number.isFinite(total) && total > 0 ? Math.round(total * 100) / 100 : 0,
+    dur: Math.round(effectiveDur * 100) / 100,
     at: Number.isFinite(now) ? Math.round(now) : Date.now(),
   };
 
@@ -117,7 +130,7 @@ function getEntry(map, filePath) {
  *
  * 不满足下面任一条就返回 0（从头播）：
  *  - 有记录且位置 > MIN_SECONDS；
- *  - 没有总长信息，或位置明确还没到结尾附近。
+ *  - 没有总长信息，或位置明确还没到结尾附近（RESUME_END_MARGIN 比写入更严格）。
  *
  * @param {any} entry
  * @returns {number} 要跳到的秒数；0 表示不续播
@@ -126,7 +139,7 @@ function resumeAt(entry) {
   const e = normalizeEntry(entry);
   if (!e) return 0;
   if (e.t < MIN_SECONDS) return 0;
-  if (e.dur > 0 && e.t >= e.dur - END_MARGIN) return 0;
+  if (e.dur > 0 && e.t >= e.dur - RESUME_END_MARGIN) return 0;
   return e.t;
 }
 
@@ -143,6 +156,8 @@ module.exports = {
   END_MARGIN,
   MAX_ENTRIES,
   MIN_SECONDS,
+  RESUME_END_MARGIN,
+  WRITE_END_MARGIN,
   clearEntry,
   getEntry,
   normalizeEntry,
