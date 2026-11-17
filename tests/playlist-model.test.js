@@ -182,3 +182,76 @@ test('computeBounds：高度不会小于 120（防止窗口被压成一条线）
   });
   assert.equal(b.height, 120);
 });
+
+// ---------------------------------------------------------------- 追加 / 移除（列表编辑）
+
+test('appendPaths：追加到末尾并去重', () => {
+  const items = M.buildItems(['C:\\V\\a.mp4', 'C:\\V\\b.mp4']);
+  const r = M.appendPaths(items, ['C:\\V\\c.mp4', 'C:\\V\\a.mp4', 'C:\\V\\d.mp4']);
+  assert.deepEqual(r.items.map((x) => x.name), ['a.mp4', 'b.mp4', 'c.mp4', 'd.mp4']);
+  assert.equal(r.added, 2, '重复的 a.mp4 不算新增');
+});
+
+test('appendPaths：空输入安全', () => {
+  const items = M.buildItems(['C:\\V\\a.mp4']);
+  assert.deepEqual(M.appendPaths(items, []).added, 0);
+  assert.deepEqual(M.appendPaths(items, null).added, 0);
+  assert.equal(M.appendPaths([], ['C:\\x.mp4']).items.length, 1);
+  assert.equal(M.appendPaths(null, ['C:\\x.mp4']).items.length, 1);
+});
+
+test('appendPaths：不修改传入数组', () => {
+  const items = M.buildItems(['C:\\V\\a.mp4']);
+  M.appendPaths(items, ['C:\\V\\b.mp4']);
+  assert.equal(items.length, 1);
+});
+
+test('removeAt：移除中间项，当前项下标跟着前移', () => {
+  const items = M.buildItems(['a.mp4', 'b.mp4', 'c.mp4']);
+  const r = M.removeAt(items, 0, 2);   // 删第 1 个，当前是第 3 个
+  assert.deepEqual(r.items.map((x) => x.name), ['b.mp4', 'c.mp4']);
+  assert.equal(r.index, 1, '当前项从 2 前移到 1');
+});
+
+test('removeAt：移除当前项 -> 下标变 -1（取消高亮）', () => {
+  const items = M.buildItems(['a.mp4', 'b.mp4']);
+  const r = M.removeAt(items, 1, 1);
+  assert.deepEqual(r.items.map((x) => x.name), ['a.mp4']);
+  assert.equal(r.index, -1);
+});
+
+test('removeAt：移除当前项之后的项，当前下标不变', () => {
+  const items = M.buildItems(['a.mp4', 'b.mp4', 'c.mp4']);
+  const r = M.removeAt(items, 2, 0);
+  assert.equal(r.index, 0);
+  assert.equal(r.items.length, 2);
+});
+
+test('removeAt：非法下标原样返回', () => {
+  const items = M.buildItems(['a.mp4']);
+  assert.equal(M.removeAt(items, 5, 0).items.length, 1);
+  assert.equal(M.removeAt(items, -1, 0).index, 0);
+  assert.equal(M.removeAt(items, 'x', 0).items.length, 1);
+  assert.equal(M.removeAt(null, 0, -1).items.length, 0);
+});
+
+test('removeAt：没有当前项时不会算出负数', () => {
+  const items = M.buildItems(['a.mp4', 'b.mp4']);
+  assert.equal(M.removeAt(items, 0, -1).index, -1);
+});
+
+test('removeAt：不修改传入数组', () => {
+  const items = M.buildItems(['a.mp4', 'b.mp4']);
+  M.removeAt(items, 0, 0);
+  assert.equal(items.length, 2);
+});
+
+test('removeAt + appendPaths 连用：删完再加回来', () => {
+  let items = M.buildItems(['a.mp4', 'b.mp4']);
+  let index = 1;
+  ({ items, index } = M.removeAt(items, 1, index));
+  assert.equal(index, -1);
+  const r = M.appendPaths(items, ['C:\\V\\b.mp4']);
+  assert.equal(r.items.length, 2);
+  assert.deepEqual(r.items.map((x) => x.name), ['a.mp4', 'b.mp4']);
+});

@@ -44,7 +44,8 @@ module.exports = {
     "mpvMissingTitle": "缺少 mpv.exe",
     "mpvMissingMessage": "MarkPlay 需要 mpv.exe 才能播放视频",
     "fileGoneTitle": "文件不存在",
-    "fileGoneMessage": "这个文件已经被移动或删除了："
+    "fileGoneMessage": "这个文件已经被移动或删除了：",
+    "addToListTitle": "添加视频到列表"
   },
   "about": {
     "detail": "触摸板顺滑快进快退 · A/B/C 快捷键打点 · 标记导出与片段剪辑\n内核：mpv + ffmpeg"
@@ -340,7 +341,9 @@ module.exports = {
     "count": "（{n}）",
     "close": "关闭文件列表",
     "hint": "点击切换视频 · 双击打开并关闭 · Esc 收起",
-    "empty": "还没有文件\n打开或拖入视频后会出现在这里",
-    "exitFullscreen": "退出全屏 (Esc)"
+    "empty": "还没有文件\n点右上角 ＋ 添加，或把视频拖进主窗口",
+    "exitFullscreen": "退出全屏 (Esc)",
+    "add": "添加文件到列表",
+    "remove": "从列表移除（不会删除文件）"
   }
 };

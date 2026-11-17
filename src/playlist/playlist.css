@@ -187,6 +187,29 @@ html, body {
   margin-top: 1px;
 }
 
+/* 条目右侧的移除按钮：默认很淡，悬停到该条目时才明显 */
+.item .remove {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  font-family: inherit;
+  opacity: 0;
+  transition: opacity .12s, background .12s, color .12s;
+}
+
+.item:hover .remove { opacity: 1; }
+.item .remove:hover { background: rgba(255, 82, 82, .18); color: #ff8a80; }
+
 /* 正在播放的指示点 */
 .playing {
   flex: none;

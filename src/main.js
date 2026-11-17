@@ -594,12 +594,6 @@ function makePlaylistItem(filePath) {
  * @param {string[]} paths
  * @returns {number} 实际加入的数量
  */
-function setPlaylistPaths(paths) {
-  playlistItems = PlaylistModel.buildItems(paths);
-  playlistIndex = playlistItems.length ? 0 : -1;
-  emitPlaylist();
-  return playlistItems.length;
-}
 
 /**
  * 记录"现在正在播这个文件"：在列表里就移动高亮，不在就追加。
@@ -620,6 +614,37 @@ function notePlaylistCurrent(filePath) {
 function requestOpenFile(filePath) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   mainWindow.webContents.send('player-event', { type: 'open-file', path: filePath });
+}
+
+/**
+ * 从列表里移除第 index 条（**只是从列表移除，不删磁盘文件**）。
+ * @param {number} index
+ */
+function removePlaylistItem(index) {
+  const before = playlistItems.length;
+  const next = PlaylistModel.removeAt(playlistItems, index, playlistIndex);
+  playlistItems = next.items;
+  playlistIndex = next.index;
+  if (playlistItems.length !== before) {
+    emitPlaylist();
+    logInfo('[playlist] removed item', index, 'remaining', playlistItems.length);
+  }
+}
+
+/**
+ * 往列表追加一批文件（**只入列表，不改变当前播放**）。
+ * 列表窗口的「+」走这里。
+ * @param {string[]} paths
+ * @returns {number} 实际新增条数
+ */
+function appendPlaylistPaths(paths) {
+  const r = PlaylistModel.appendPaths(playlistItems, paths);
+  playlistItems = r.items;
+  if (r.added > 0) {
+    emitPlaylist();
+    logInfo('[playlist] appended', r.added, 'total', playlistItems.length);
+  }
+  return r.added;
 }
 
 /**
@@ -1563,7 +1588,7 @@ function registerIpc() {
     if (!media.length) return { canceled: true, count: 0 };
 
     if (settings) settings.set('lastDir', path.dirname(media[0]));
-    setPlaylistPaths(media);
+    appendPlaylistPaths(media);
     requestOpenFile(media[0]);
 
     // 多选时才自动把列表显示出来——单选只是普通打开，不打扰
@@ -1578,7 +1603,7 @@ function registerIpc() {
     const media = list.filter((p) => isMediaPath(p));
     if (!media.length) return { ok: false, count: 0 };
     if (settings) settings.set('lastDir', path.dirname(media[0]));
-    setPlaylistPaths(media);
+    appendPlaylistPaths(media);
     requestOpenFile(media[0]);
     showPlaylist(false);
     return { ok: true, count: media.length };
@@ -1609,6 +1634,40 @@ function registerIpc() {
   // 列表窗口：就绪，把当前数据推过去
   ipcMain.on('playlist-ready', (event) => {
     emitPlaylist();
+  });
+
+  // 列表窗口：点条目的 ✕ —— 只从列表移除，不动文件
+  ipcMain.on('playlist-remove', (event, index) => {
+    removePlaylistItem(index);
+  });
+
+  // 列表窗口：点顶部的 + —— 多选文件追加进列表（不自动播放）
+  ipcMain.handle('playlist-add', async () => {
+    const lastDir = settings ? settings.get('lastDir') : '';
+    playlistDialogOpen = true;
+    let res;
+    try {
+      res = await dialog.showOpenDialog(mainWindow, {
+        title: t('dialog.addToListTitle'),
+        defaultPath: lastDir && fs.existsSync(lastDir) ? lastDir : undefined,
+        properties: ['openFile', 'multiSelections'],
+        filters: [{ name: t('dialog.mediaFilter'), extensions: MEDIA_EXTENSIONS }],
+      });
+    } finally {
+      playlistDialogOpen = false;
+    }
+    if (res.canceled || !res.filePaths.length) {
+      return { ok: true, canceled: true, added: 0, total: playlistItems.length };
+    }
+
+    const media = res.filePaths.filter((p) => isMediaPath(p));
+    if (!media.length) {
+      return { ok: true, canceled: true, added: 0, total: playlistItems.length };
+    }
+    if (settings) settings.set('lastDir', path.dirname(media[0]));
+
+    const added = appendPlaylistPaths(media);
+    return { ok: true, canceled: false, added, total: playlistItems.length };
   });
 
   // 列表窗口：点了"退出全屏"
@@ -2058,7 +2117,7 @@ async function pickAndOpenDialog() {
   if (!media.length) return;
 
   if (settings) settings.set('lastDir', path.dirname(media[0]));
-  setPlaylistPaths(media);
+  appendPlaylistPaths(media);
   requestOpenFile(media[0]);
   if (media.length > 1) showPlaylist(false);
 }

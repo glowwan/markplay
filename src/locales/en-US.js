@@ -44,7 +44,8 @@ module.exports = {
     "mpvMissingTitle": "mpv.exe not found",
     "mpvMissingMessage": "MarkPlay needs mpv.exe to play video",
     "fileGoneTitle": "File not found",
-    "fileGoneMessage": "This file has been moved or deleted:"
+    "fileGoneMessage": "This file has been moved or deleted:",
+    "addToListTitle": "Add Videos to List"
   },
   "about": {
     "detail": "Inertial trackpad scrubbing · A/B/C marker shortcuts · marker export and clip cutting\nEngine: mpv + ffmpeg"
@@ -340,7 +341,9 @@ module.exports = {
     "count": " ({n})",
     "close": "Close file list",
     "hint": "Click to switch · double-click to open and close · Esc to hide",
-    "empty": "No files yet\nOpen or drop videos and they will show up here",
-    "exitFullscreen": "Exit fullscreen (Esc)"
+    "empty": "No files yet\nClick ＋ above to add, or drop videos into the main window",
+    "exitFullscreen": "Exit fullscreen (Esc)",
+    "add": "Add files to the list",
+    "remove": "Remove from list (does not delete the file)"
   }
 };

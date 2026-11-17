@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078d4.svg)](#requirements)
-[![Version](https://img.shields.io/badge/version-v1.10.2-green.svg)](#)
+[![Version](https://img.shields.io/badge/version-v1.11.0-green.svg)](#)
 
 [中文](README.md) | **English**
 
@@ -72,7 +72,7 @@ The control bar sits below the video rather than floating over it — the video 
 - **Resume** — each video remembers where you stopped and jumps back there next time, with a "Start over" button. Only reaching the actual end resets it; stopping a few seconds before the end still resumes from there.
 - **Subtitles** — auto-loads same-named subtitle files; drop a `.srt` / `.ass` / `.vtt` into the window to attach manually.
 - **Chinese / English UI** — switch instantly from the Language menu or the `中/EN` button; no restart, no lost progress. Follows the system language on first run, then remembers your choice.
-- **File list (bulk open)** — select several videos at once, or drop a whole batch in. Hidden by default so it costs no screen space; open it from the View menu or the 🗂 button (`Ctrl+L`) and close it with ✕. In fullscreen it slides in when the pointer reaches the right edge of the screen and hides again when it leaves.
+- **File list (bulk open)** — select several videos at once, or drop a whole batch in. Hidden by default so it costs no screen space; open it from the View menu or the 🗂 button (`Ctrl+L`) and close it with ✕. The list is editable: **＋** at the top adds files, and **✕** on each row removes it from the list (files are never deleted). In fullscreen it slides in when the pointer reaches the right edge and hides again when it leaves.
 
 **Markers & ranges**
 

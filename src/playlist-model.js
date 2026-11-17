@@ -87,6 +87,50 @@ function noteCurrent(items, filePath) {
 }
 
 /**
+ * 追加一批路径到列表末尾（去重，保持现有顺序）。
+ * 列表窗口的「+」用这个：只入列表，不改变当前播放项。
+ *
+ * @param {Array<{path: string, name: string, dir: string}>} items 现有列表
+ * @param {string[]} paths 要追加的路径
+ * @returns {{items: Array, added: number}} added = 实际新增条数
+ */
+function appendPaths(items, paths) {
+  const list = Array.isArray(items) ? items.slice() : [];
+  const before = list.length;
+  const merged = buildItems(list.map((it) => it.path).concat(paths || []));
+  return { items: merged, added: merged.length - before };
+}
+
+/**
+ * 从列表里移除第 index 条，并同步"当前项"的下标。
+ *
+ * 只是从**列表**里去掉，不动磁盘文件；
+ * 如果移掉的正是当前播放项，下标变成 -1（取消高亮，播放本身不受影响）。
+ *
+ * @param {Array<{path: string}>} items
+ * @param {number} index 要移除的下标
+ * @param {number} currentIndex 当前播放项下标（-1 表示没有）
+ * @returns {{items: Array, index: number}}
+ */
+function removeAt(items, index, currentIndex) {
+  const list = Array.isArray(items) ? items.slice() : [];
+  const i = Number(index);
+  const cur = Number.isInteger(currentIndex) ? currentIndex : -1;
+
+  if (!Number.isInteger(i) || i < 0 || i >= list.length) {
+    return { items: list, index: cur };
+  }
+
+  list.splice(i, 1);
+
+  let next = cur;
+  if (cur === i) next = -1;          // 正在播的那条被移出列表
+  else if (cur > i) next -= 1;       // 前面的项被删，下标整体前移
+
+  return { items: list, index: next };
+}
+
+/**
  * 光标是否进入了"右侧热区"（全屏时用来决定要不要弹出列表）。
  *
  * 判定用屏幕坐标，且只在右缘那一小条算命中——太宽会误触，
@@ -176,6 +220,8 @@ function computeBounds(p) {
 }
 
 module.exports = {
+  appendPaths,
+  removeAt,
   buildItems,
   computeBounds,
   dedupePaths,

@@ -12,6 +12,7 @@
   var countEl = document.getElementById('count');
   var closeBtn = document.getElementById('close');
   var exitFullBtn = document.getElementById('exit-fullscreen');
+  var addBtn = document.getElementById('add');
   var footEl = document.getElementById('foot');
 
   /** 当前数据：{ items: [{path,name,dir}], index } */
@@ -81,6 +82,21 @@
       playing.className = 'playing';
       li.appendChild(playing);
 
+      // 移除按钮：只从列表去掉，不删文件
+      var rm = document.createElement('button');
+      rm.className = 'remove';
+      rm.type = 'button';
+      rm.textContent = '✕';
+      rm.title = t('playlist.remove');
+      rm.addEventListener('click', function (e) {
+        e.stopPropagation();
+        window.markplay.remove(i);
+      });
+      rm.addEventListener('dblclick', function (e) {
+        e.stopPropagation();   // 别让双击落到条目上触发"打开并关闭"
+      });
+      li.appendChild(rm);
+
       li.addEventListener('click', function () {
         window.markplay.openItem(i);
       });
@@ -112,6 +128,12 @@
   if (closeBtn) {
     closeBtn.addEventListener('click', function () {
       window.markplay.close();
+    });
+  }
+
+  if (addBtn) {
+    addBtn.addEventListener('click', function () {
+      window.markplay.add();
     });
   }
 

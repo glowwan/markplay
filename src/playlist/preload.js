@@ -65,6 +65,18 @@ contextBridge.exposeInMainWorld('markplay', {
   /** 退出视频全屏（全屏时才显示这个按钮） */
   exitFullscreen: () => ipcRenderer.send('playlist-exit-fullscreen'),
 
+  /**
+   * 把第 index 条从列表里移除（不删文件）。
+   * @param {number} index
+   */
+  remove: (index) => ipcRenderer.send('playlist-remove', index),
+
+  /**
+   * 打开多选对话框，把选中的文件追加到列表（不自动播放）。
+   * @returns {Promise<{ok: boolean, canceled?: boolean, added: number, total: number}>}
+   */
+  add: () => ipcRenderer.invoke('playlist-add'),
+
   /** 告诉主进程"我已经就绪，给我数据" */
   ready: () => ipcRenderer.send('playlist-ready'),
 });
