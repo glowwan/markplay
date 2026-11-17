@@ -750,22 +750,20 @@ function startPlaylistWatch() {
       stopPlaylistWatch();
       return;
     }
-    // 状态过期保护：视频窗口实际上已经不是全屏了（被系统/其它路径退出），
-    // 但仍残留 isSurfaceFullscreen=true 时，绝不能继续按"全屏右缘"判定——
-    // 否则窗口模式下鼠标位置一对不上就会把列表收起来。
-    let reallyFullscreen = true;
+    // 全屏状态以我们自己的 isSurfaceFullscreen 为准。
+    // 这里**只做诊断**：isFullScreen() 在"铺满式全屏"（setFullScreen 失败后
+    // 用 setBounds 铺满屏幕的降级路径）下会返回 false，据此停表会误伤正常全屏。
     try {
-      reallyFullscreen = surfaceWindow.isFullScreen();
-    } catch {
-      reallyFullscreen = false;
-    }
-    if (!reallyFullscreen) {
-      logWarn('[playlist] watch: surface no longer fullscreen, stopping');
-      isSurfaceFullscreen = false;
-      stopPlaylistWatch();
-      if (playlistVisible) layoutPlaylist();
-      return;
-    }
+      if (!surfaceWindow.isFullScreen()) {
+        const b = surfaceWindow.getBounds();
+        const d = screen.getDisplayMatching(b).bounds;
+        const covers = Math.abs(b.x - d.x) <= 2 && Math.abs(b.y - d.y) <= 2
+          && Math.abs(b.width - d.width) <= 2 && Math.abs(b.height - d.height) <= 2;
+        if (!covers) {
+          logWarn('[playlist] watch: 既非 isFullScreen 也未铺满屏幕，可能状态不一致');
+        }
+      }
+    } catch { /* isFullScreen 个别环境会抛，忽略 */ }
 
     const pt = screen.getCursorScreenPoint();
     const d = screen.getDisplayMatching(surfaceWindow.getBounds());

@@ -1121,3 +1121,55 @@ z-order 会被 mpv 渲染所在的**原生子窗口**（视频画面）盖住。
 这次差点凭直觉改 hide 逻辑，而真正的成因根本不在 hide 上。
 **先把"窗口是否真的不可见"测出来**，一步就把排查范围砍掉一半。
 最小复现工程只花了十几分钟，却省掉了后面所有猜测。
+
+### 一次自己造的回归（v1.11.1 → v1.11.2）
+
+v1.11.1 修"点 ✕ 后列表消失"时，我顺手加了个"真·全屏"校验，
+想在标志过期时把光标轮询表停掉：
+
+```js
+if (!surfaceWindow.isFullScreen()) {
+  isSurfaceFullscreen = false;
+  stopPlaylistWatch();
+  return;
+}
+```
+
+结果全屏下的右侧悬停弹出彻底失效。
+
+**坑在哪**：这个项目的全屏有降级路径——
+
+```js
+try { surfaceWindow.setFullScreen(true); }
+catch { /* ... */ }
+// 150ms 后如果仍不是全屏，就直接铺满显示器
+setTimeout(() => {
+  if (isSurfaceFullscreen && !surfaceWindow.isFullScreen()) {
+    surfaceWindow.setBounds(display.bounds);
+  }
+}, 150);
+```
+
+也就是说"铺满式全屏"是**设计内的正常状态**，而它恰恰会让 `isFullScreen()` 返回 `false`。
+我把一个合法的实现细节当成了异常。
+
+更糟的是它还会改写 `isSurfaceFullscreen = false`，
+那样之后按 F11/ESC 的判定也会错乱——一个防御动作同时破坏了两处状态。
+
+**修法**：全屏状态只认自己的标志，`isFullScreen()` 降级为纯诊断日志。
+另外把这条规则写成了 `tests/playlist-watch.test.js` 里的源码断言：
+
+- 进入/退出全屏要起停轮询表；
+- watch 体内**不得**给 `isSurfaceFullscreen` 赋值；
+- **不得**依据 `isFullScreen()` 停表；
+- 必须走 `PlaylistModel.hitRightEdge` / `insideList`；
+- `hidePlaylist` 必须带 reason，`emitPlaylist` 必须抬高窗口。
+
+### 教训
+
+1. **防御性代码要有失败证据再写。** 我加那个校验时并没有观察到"标志过期"的实际故障，
+   纯粹是想象出来的风险——结果用真实的故障换了想象中的风险。
+2. **改写共享状态前想清楚谁在消费它。** `isSurfaceFullscreen` 不只给 watch 用，
+   F11/ESC/布局都读它。
+3. **无法单测的逻辑，用源码契约测试兜住。** 这段代码依赖 Electron 窗口状态，
+   node:vm 测不了；但"不许这么写"是可以断言的，8 条断言成本很低。

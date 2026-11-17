@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078d4.svg)](#环境要求)
-[![Version](https://img.shields.io/badge/version-v1.11.1-green.svg)](#)
+[![Version](https://img.shields.io/badge/version-v1.11.2-green.svg)](#)
 
 **中文** | [English](README.en.md)
 

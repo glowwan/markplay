@@ -2,6 +2,24 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。日期为发布日。
 
+## [1.11.2] - 2026-11-17
+
+### 修复
+
+- **全屏下右侧悬停不再弹出列表**（v1.11.1 引入的回归）
+  - 起因：v1.11.1 为防"全屏标志过期"加了 `surfaceWindow.isFullScreen()` 校验，
+    不通过就停掉光标轮询表。
+  - 而本项目的全屏有**降级路径**：`setFullScreen(true)` 失败时改用
+    `setBounds(显示器 bounds)` 铺满屏幕——这种"铺满式全屏"下 `isFullScreen()` 返回 `false`，
+    校验于是把正常的全屏判定当成过期，轮询表被停，悬停自然失效。
+  - 修法：全屏状态**只以 `isSurfaceFullscreen` 为准**；`isFullScreen()` 仅用于诊断日志，
+    不再影响任何行为，也不再改写 `isSurfaceFullscreen`（改写会让 F11/ESC 判定错乱）。
+
+### 内部
+
+- 新增 `tests/playlist-watch.test.js`（8 个源码契约用例）：把这段"没法单测"的逻辑箍住——
+  进入/退出全屏要起停轮询表、watch 内不得改写全屏标志、不得依据 `isFullScreen()` 停表、
+  必须走 `PlaylistModel` 的判定函数、`hidePlaylist` 必须带原因、`emitPlaylist` 必须抬高窗口
 ## [1.11.1] - 2026-11-17
 
 ### 修复

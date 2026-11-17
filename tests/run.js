@@ -12,6 +12,7 @@
 
 require('./settings.test.js');
 require('./playlist-model.test.js');
+require('./playlist-watch.test.js');
 require('./resume.test.js');
 require('./i18n.test.js');
 require('./i18n-coverage.test.js');
